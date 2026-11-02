@@ -83,11 +83,10 @@ public:
 
     // Reset filter history. Safe anytime; pending coefficients if any
     // are preserved.
+    // Sets a flag; the audio thread clears the history at the start of its
+    // next process() call. Writing z1_/z2_ here would race with process().
     void reset() noexcept {
-        try {
-            std::lock_guard<std::mutex> lock(state_mutex_);
-            z1_ = z2_ = 0.0f;
-        } catch (...) { /* noexcept */ }
+        reset_requested_.store(true, std::memory_order_release);
     }
 
     // ── Audio thread: per-sample processing ───────────────────────
@@ -100,6 +99,11 @@ public:
 
             // Non-blocking apply of pending coefficients.
             apply_pending();
+
+            if (reset_requested_.exchange(false, std::memory_order_acq_rel)) {
+                z1_ = 0.0f;
+                z2_ = 0.0f;
+            }
 
             if (!active_.load(std::memory_order_acquire)) return;
 
@@ -168,7 +172,7 @@ private:
             if (q <= 0.0f) q = 0.707f;
 
             const float A     = std::pow(10.0f, gain_db * 0.025f);   // 10^(dB/40)
-            const float w0    = 2.0f * static_cast<float>(M_PI) * freq_hz / sample_rate;
+            const float w0    = 2.0f * kPi * freq_hz / sample_rate;
             const float cos_w0 = std::cos(w0);
             const float sin_w0 = std::sin(w0);
             const float alpha = sin_w0 / (2.0f * q);
@@ -296,6 +300,8 @@ private:
         } catch (...) { /* noexcept */ }
     }
 
+    static constexpr float kPi = 3.14159265358979323846f;
+
     void set_error(const std::string& msg) noexcept {
         try {
             std::lock_guard<std::mutex> lock(error_mutex_);
@@ -314,17 +320,20 @@ private:
 
     // Current applied coefficients (written under state_mutex_, read
     // without lock in process() — see note above).
-    float b0_ = 1.0f;
-    float b1_ = 0.0f;
-    float b2_ = 0.0f;
-    float a1_ = 0.0f;
-    float a2_ = 0.0f;
+    // Atomic so the getters are safe from any thread. process() reads them
+    // once per call into locals, so there is no per-sample atomic cost.
+    std::atomic<float> b0_{1.0f};
+    std::atomic<float> b1_{0.0f};
+    std::atomic<float> b2_{0.0f};
+    std::atomic<float> a1_{0.0f};
+    std::atomic<float> a2_{0.0f};
 
     // Filter history — audio-thread-only, no mutex needed.
     float z1_ = 0.0f;
     float z2_ = 0.0f;
 
     std::atomic<bool>  active_{false};
+    std::atomic<bool>  reset_requested_{false};
 
     mutable std::mutex error_mutex_;
     std::string        last_error_;
