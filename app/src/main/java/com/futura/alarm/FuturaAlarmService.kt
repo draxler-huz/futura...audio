@@ -51,12 +51,14 @@ class FuturaAlarmService : Service() {
 
     @Inject lateinit var coordinator: AlarmCoordinator
     @Inject lateinit var watchdog: MissedAlarmWatchdog
+    @Inject lateinit var audioSession: AlarmAudioSession
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var watchdogJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
+        audioSession.attach()
         // The watchdog's wake lease follows the alarm lifecycle: armed on
         // Firing, released on Snoozed or Dismissed.
         scope.launch {
@@ -88,6 +90,7 @@ class FuturaAlarmService : Service() {
                 coordinator.session.value
                     ?.takeIf { it.phase == AlarmCoordinator.Phase.FIRING }
                     ?.let { watchdog.arm(it.specId) }
+                audioSession.resumeIfFiring()
                 startWatchdog()
             } else {
                 Log.i(TAG, "No session to resume; stopping")
