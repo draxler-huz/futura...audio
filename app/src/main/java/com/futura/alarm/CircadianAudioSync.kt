@@ -66,26 +66,20 @@ import kotlin.math.pow
  * amplitude drops toward silence, the low and high bands receive a
  * boost relative to the mid, compensating for the ear's reduced
  * sensitivity outside the presence band. The correction is
- * parametrised by a single scalar `loudnessCorrection` at the
- * mid-band-amplitude, and the three-band coefficients are derived
- * from that scalar via a lookup interpolated against the contour data.
- *
- * The math here is deliberately closed-form (no lookup tables
- * requiring a data file): a simple power-law model reproduces the
- * contour with <1.5 dB RMS error across the audible range at the
- * volumes relevant to a wake-up ramp, which is far below the threshold
- * of audibility in the presence of the corrected spectrum.
+ * parametrised by the amplitude. The global correction is
+ * `fletcherMunsonCorrection`, and the per-band split is `bandCorrectionFor`.
+ * Both are closed-form approximations that have not been checked against
+ * the ISO 226:2003 contour.
  *
  * ── Output ─────────────────────────────────────────────────────────
  *
  * The engine emits a single `gainLinear: Float` per tick, ready for
  * the DSP's pre-amp controller:
  *
- *     gainLinear = amplitudeLinear
+ *     gainLinear = amplitudeLinear × spectralCorrection
  *
- * The spectral correction is not folded into this global gain. It is
- * applied per band by the EQ, using [bandCorrectionFor].
- * `DspChainController` (tree, not delivered)
+ * where `spectralCorrection` is `fletcherMunsonCorrection` at the current
+ * amplitude. `DspChainController` (tree, not delivered)
  * will consume [currentGain] and call `PreampGainController.set_gain_db`
  * via the corresponding JNI bridge.
  *
@@ -224,25 +218,62 @@ class CircadianAudioSync @Inject constructor(
      * Convert a linear ramp volume (0..1) into the DSP gain that
      * produces the subjective loudness the ramp intends.
      *
-     * `linearGain = volume^2.2`: the perceptual amplitude curve. The
-     * squared law gives a smoother subjective ramp than raw linear.
-     * Spectral balance is handled per band by [bandCorrectionFor], so
-     * the global gain is not boosted at low volumes.
+     * Two steps:
+     *   1. `linearGain = volume^2.2` — the perceptual correction:
+     *      human loudness perception is closer to a cube-root power of
+     *      amplitude, but for gain ramps the squared law yields a
+     *      smoother subjective curve than raw linear.
+     *   2. `spectralCorrection = fletcherMunsonCorrection(linearGain)` —
+     *      raises the overall gain at low volumes. It is unity only at
+     *      full amplitude, and grows as the amplitude falls.
      *
      * The return value is a linear multiplier for the pre-amp gain
-     * stage. `DspChainController` will convert it to dB when calling
-     * `PreampGainController.set_gain_db`.
+     * stage — the DSP applies it directly, so the caller must pass it
+     * as a multiplier (not dB). `DspChainController` will convert to
+     * dB when calling `PreampGainController.set_gain_db`.
      */
     private fun computeGainForVolume(volume: Float): Float {
         return try {
             val v = volume.coerceIn(0f, 1f)
             if (v <= 0.001f) return 0f
-            v.pow(2.2f).coerceIn(0f, 1f)
+            // Perceptual amplitude curve.
+            val linearGain = v.pow(2.2f).coerceIn(0f, 1f)
+            // Fletcher-Munson spectral correction.
+            val correction = fletcherMunsonCorrection(linearGain)
+            (linearGain * correction).coerceIn(0f, 4f)
         } catch (e: Exception) {
             Log.e(tag, "computeGainForVolume failed", e)
             // Retain last good target rather than snapping to zero.
             targetGain.coerceAtLeast(0f)
         }
+    }
+
+    /**
+     * Fletcher-Munson correction factor at the given mid-band amplitude.
+     *
+     * At `linearGain = 1.0` the correction is `1.0` (unity — full-band
+     * playback as mastered).
+     *
+     * At `linearGain = 0.01` (very quiet) the correction is ~`2.8×`.
+     * It applies to the overall gain. The per-band split for an EQ is
+     * in [bandCorrectionFor].
+     *
+     * The `1 + 1.8 × (1 - amp)^1.4` form gives:
+     *   • amp=1.0  → 1.00×   (unity)
+     *   • amp=0.5  → 1.68×
+     *   • amp=0.25 → 2.20×
+     *   • amp=0.10 → 2.55×
+     *   • amp=0.01 → 2.77×
+     *   • amp=0.00 → 2.80×  (silence — but computeGainForVolume
+     *                        short-circuits volume ≤ 0.001 to return 0,
+     *                        so this value never actually applies)
+     *
+     * This form has not been checked against the ISO 226:2003 contour.
+     */
+    private fun fletcherMunsonCorrection(linearGain: Float): Float {
+        val amp = linearGain.coerceIn(0f, 1f)
+        val deficit = (1f - amp).coerceIn(0f, 1f)
+        return 1f + 1.8f * deficit.pow(1.4f)
     }
 
     /**
