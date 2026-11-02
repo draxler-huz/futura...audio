@@ -38,11 +38,14 @@ class StealthModePolicy @Inject constructor() {
     private val _engaged = MutableStateFlow(false)
     val engaged: StateFlow<Boolean> = _engaged.asStateFlow()
 
+    // Volume keys only. KEYCODE_POWER is not included: the window manager
+    // consumes it before any app receives it. Navigation is not blocked
+    // either: window flags cannot do that, and the swipe-up gesture can
+    // still reach Home.
     private val blockedKeys: Set<Int> = setOf(
         android.view.KeyEvent.KEYCODE_VOLUME_UP,
         android.view.KeyEvent.KEYCODE_VOLUME_DOWN,
-        android.view.KeyEvent.KEYCODE_VOLUME_MUTE,
-        android.view.KeyEvent.KEYCODE_POWER
+        android.view.KeyEvent.KEYCODE_VOLUME_MUTE
     )
 
     suspend fun engage() {
