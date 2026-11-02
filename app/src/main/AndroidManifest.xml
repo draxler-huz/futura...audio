@@ -181,6 +181,9 @@
                 <data
                     android:host="open"
                     android:scheme="futura" />
+                <data
+                    android:host="alarm"
+                    android:scheme="futura" />
             </intent-filter>
         </activity>
 
@@ -219,7 +222,7 @@
         <!-- Biometric unlock + alarm UI. Launched from FuturaAlarmService via
              a full-screen PendingIntent (PendingIntentFactory). -->
         <activity
-            android:name=".ui.AlarmActivity"
+            android:name=".alarm.AlarmActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density|smallestScreenSize"
             android:excludeFromRecents="true"
             android:exported="false"

@@ -5,7 +5,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import com.futura.ui.MainActivity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -78,14 +77,11 @@ class PendingIntentFactory @Inject constructor(
     }
 
     /**
-     * Full-screen PendingIntent for the alarm surface. Targets [MainActivity]
+     * Full-screen PendingIntent for the alarm surface. Targets [AlarmActivity]
      * explicitly, with the spec id as an extra, so it resolves inside the app.
-     *
-     * The dedicated alarm screen, `AlarmActivity`, is declared in the manifest
-     * but its class does not exist yet. Routing to it is pending.
      */
     fun forFullScreen(specId: String): PendingIntent? = try {
-        val intent = Intent(context, MainActivity::class.java).apply {
+        val intent = Intent(context, AlarmActivity::class.java).apply {
             action = ACTION_OPEN_ALARM
             putExtra(AlarmReceiver.EXTRA_SPEC_ID, specId)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
