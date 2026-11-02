@@ -24,6 +24,9 @@ import kotlinx.coroutines.sync.withLock
  * [session] (`StateFlow<AlarmSession?>`). Discrete transitions are
  * broadcast on [events] (`SharedFlow<AlarmEvent>`).
  *
+ * Every session change is also written to [AlarmStore], so a restarted
+ * process can resume it through [restoreIfNeeded].
+ *
  * Scheduling side effects go through [AlarmSchedulerImpl]:
  *   • fire     → fallback cancelled; recurring alarms armed for next occurrence
  *   • snooze   → one-shot armed at the snooze time
@@ -68,6 +71,37 @@ class AlarmCoordinator @Inject constructor(
     )
     val events: SharedFlow<AlarmEvent> = _events.asSharedFlow()
 
+    /**
+     * Resumes the session that was active before the process died. Returns
+     * true if a session is active afterwards.
+     *
+     * Only the active session is restored. A future alarm needs nothing:
+     * AlarmManager keeps it armed across process death, and
+     * BootCompletionHandler re-arms everything after a reboot.
+     */
+    suspend fun restoreIfNeeded(): Boolean {
+        sessionMutex.withLock {
+            if (_session.value != null) return true
+            store.load()
+            val persisted = store.loadSession() ?: return false
+            val spec = store.get(persisted.specId)
+            val phase = runCatching { Phase.valueOf(persisted.phase) }.getOrNull()
+            if (spec == null || phase == null || phase == Phase.DISMISSED) {
+                store.saveSession(null)
+                return false
+            }
+            _session.value = AlarmSession(
+                specId = persisted.specId,
+                spec = spec,
+                phase = phase,
+                snoozeCount = persisted.snoozeCount,
+                fireTimeMs = persisted.fireTimeMs
+            )
+            Log.i(tag, "Restored $phase session for ${persisted.specId}")
+            return true
+        }
+    }
+
     suspend fun onAlarmFired(specId: String) {
         sessionMutex.withLock {
             val spec = store.get(specId)
@@ -81,14 +115,14 @@ class AlarmCoordinator @Inject constructor(
             // A second fire while already firing is a duplicate; ignore it.
             if (current?.phase == Phase.FIRING) return
 
-            _session.value = AlarmSession(
+            setSession(AlarmSession(
                 specId = specId,
                 spec = spec,
                 phase = Phase.FIRING,
                 // A snoozed alarm coming back keeps its count, so the cap holds.
                 snoozeCount = current?.snoozeCount ?: 0,
                 fireTimeMs = System.currentTimeMillis()
-            )
+            ))
             endOccurrence(specId)
             _events.tryEmit(AlarmEvent.Firing(specId))
         }
@@ -101,7 +135,7 @@ class AlarmCoordinator @Inject constructor(
             if (current.snoozeCount >= current.spec.maxSnoozeCycles) {
                 // Cycle cap reached: force-dismiss.
                 endOccurrence(specId)
-                _session.value = current.copy(phase = Phase.DISMISSED)
+                setSession(current.copy(phase = Phase.DISMISSED))
                 _events.tryEmit(AlarmEvent.Dismissed(specId))
                 return
             }
@@ -111,11 +145,11 @@ class AlarmCoordinator @Inject constructor(
                 (1L shl current.snoozeCount)
             val nextFire = System.currentTimeMillis() + delayMs
             scheduler.scheduleAt(specId, nextFire)
-            _session.value = current.copy(
+            setSession(current.copy(
                 phase = Phase.SNOOZED,
                 snoozeCount = current.snoozeCount + 1,
                 fireTimeMs = nextFire
-            )
+            ))
             _events.tryEmit(AlarmEvent.Snoozed(specId, nextFire))
         }
     }
@@ -125,7 +159,7 @@ class AlarmCoordinator @Inject constructor(
             val current = _session.value ?: return
             if (current.specId != specId) return
             endOccurrence(specId)
-            _session.value = current.copy(phase = Phase.DISMISSED)
+            setSession(current.copy(phase = Phase.DISMISSED))
             _events.tryEmit(AlarmEvent.Dismissed(specId))
         }
         // Clear session on the next tick so downstream collectors see
@@ -135,7 +169,7 @@ class AlarmCoordinator @Inject constructor(
             sessionMutex.withLock {
                 if (_session.value?.specId == specId &&
                     _session.value?.phase == Phase.DISMISSED) {
-                    _session.value = null
+                    setSession(null)
                 }
             }
         }
@@ -146,6 +180,21 @@ class AlarmCoordinator @Inject constructor(
         // The MissedAlarmWatchdog (group 3) observes this via the shared
         // flow and executes the escalation chain; the coordinator does
         // not escalate itself.
+    }
+
+    /** Sets the in-memory session and persists it. Caller holds [sessionMutex]. */
+    private fun setSession(session: AlarmSession?) {
+        _session.value = session
+        if (session == null || session.phase == Phase.DISMISSED) {
+            store.saveSession(null)
+        } else {
+            store.saveSession(AlarmStore.PersistedSession(
+                specId = session.specId,
+                phase = session.phase.name,
+                snoozeCount = session.snoozeCount,
+                fireTimeMs = session.fireTimeMs
+            ))
+        }
     }
 
     /**

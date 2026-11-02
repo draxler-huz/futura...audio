@@ -27,28 +27,24 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * Phase 1 alarm foreground service.
+ * Alarm foreground service.
  *
- * Runs as `FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK`, keeps the alarm
- * engine alive across system memory pressure, and runs an in-process
- * watchdog coroutine that verifies the service is still foregrounded and
- * re-posts the notification if the OS or an OEM background-killer
- * stripped it.
+ * Runs as `FOREGROUND_SERVICE_TYPE_SPECIAL_USE` on API 34+: it keeps a
+ * user-set alarm session alive until it is dismissed, which is not one of
+ * the standard types. The manifest carries the matching permission and
+ * subtype property.
  *
- * The native C++ engine integration (continuous audio-engine resurrection
- * via `NativeEngine` / `NativePlayerBridge`) is stubbed — this service
- * does not currently call into the native engine directly. The audio
- * pipeline is driven by [AlarmCoordinator] → [SnoozeToPlayerHandshake]
- * (group 2). Once that handshake is wired, the service will host the
- * engine. The service's responsibility today is:
+ * On start, the service first calls startForeground (required promptly),
+ * then asks [AlarmCoordinator] to resume the persisted session. If there is
+ * none, it stops itself. A resumed session keeps the watchdog running, which
+ * re-posts the notification if the OS drops it.
  *
- *   1. Foreground presence + notification channel maintenance.
- *   2. Watchdog that re-posts the notification on OEM kills.
- *   3. Graceful stop when the alarm session ends.
+ * The native engine is not wired to this service yet. Once playback runs
+ * here, the type may change to MEDIA_PLAYBACK, which must then match the
+ * manifest and the permission.
  *
  * Restart policy is `START_STICKY`, so the OS restarts the service after
- * an OEM kill; the watchdog picks up the existing session from
- * [AlarmCoordinator] and continues.
+ * an OEM kill and the session is restored from storage.
  */
 @AndroidEntryPoint
 class FuturaAlarmService : Service() {
@@ -61,8 +57,22 @@ class FuturaAlarmService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Must run promptly after startForegroundService, so it comes first.
         ensureForeground()
-        startWatchdog()
+        scope.launch {
+            val hasSession = try {
+                coordinator.restoreIfNeeded()
+            } catch (e: Exception) {
+                Log.e(TAG, "Session restore failed", e)
+                false
+            }
+            if (hasSession) {
+                startWatchdog()
+            } else {
+                Log.i(TAG, "No session to resume; stopping")
+                stopSelf()
+            }
+        }
         return START_STICKY
     }
 
@@ -78,11 +88,11 @@ class FuturaAlarmService : Service() {
         try {
             createNotificationChannel()
             val notification = buildForegroundNotification()
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 startForeground(
                     NOTIFICATION_ID,
                     notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
                 )
             } else {
                 startForeground(NOTIFICATION_ID, notification)

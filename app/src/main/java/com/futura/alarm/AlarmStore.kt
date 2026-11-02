@@ -113,6 +113,55 @@ class AlarmStore @Inject constructor(
 
     fun get(specId: String): AlarmSpec? = _specs.value.firstOrNull { it.id == specId }
 
+    // ── Active session (survives process death) ───────────────────
+
+    /** The alarm session as stored: phase is the enum name. */
+    data class PersistedSession(
+        val specId: String,
+        val phase: String,
+        val snoozeCount: Int,
+        val fireTimeMs: Long
+    )
+
+    /** Persist the active session, or clear it when [session] is null. */
+    fun saveSession(session: PersistedSession?) {
+        try {
+            val editor = prefs.edit()
+            if (session == null) {
+                editor.remove(KEY_SESSION)
+            } else {
+                editor.putString(KEY_SESSION, JSONObject().apply {
+                    put("specId", session.specId)
+                    put("phase", session.phase)
+                    put("snoozeCount", session.snoozeCount)
+                    put("fireTimeMs", session.fireTimeMs)
+                }.toString())
+            }
+            editor.apply()
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to persist session", e)
+        }
+    }
+
+    /** Read back the persisted session, or null if none or unreadable. */
+    fun loadSession(): PersistedSession? = try {
+        val raw = prefs.getString(KEY_SESSION, null)
+        if (raw == null) {
+            null
+        } else {
+            val j = JSONObject(raw)
+            PersistedSession(
+                specId = j.getString("specId"),
+                phase = j.getString("phase"),
+                snoozeCount = j.optInt("snoozeCount", 0),
+                fireTimeMs = j.optLong("fireTimeMs", 0L)
+            )
+        }
+    } catch (e: Exception) {
+        Log.e(tag, "Failed to read persisted session", e)
+        null
+    }
+
     // ── JSON encoding ─────────────────────────────────────────────
 
     private fun persistLocked(all: List<AlarmSpec>) {
@@ -161,5 +210,6 @@ class AlarmStore @Inject constructor(
 
     private companion object {
         const val KEY_SPECS = "specs_v1"
+        const val KEY_SESSION = "active_session_v1"
     }
 }

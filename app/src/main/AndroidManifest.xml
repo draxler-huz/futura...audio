@@ -43,6 +43,7 @@
     <!-- Foreground services (API 28+) + typed permission (API 34+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <!-- Notifications + full-screen alarm surface -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -238,8 +239,12 @@
             android:name=".alarm.FuturaAlarmService"
             android:directBootAware="false"
             android:exported="false"
-            android:foregroundServiceType="mediaPlayback"
-            android:stopWithTask="false" />
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps a user-set alarm session alive until it is dismissed or times out" />
+        </service>
 
         <!-- Phase 6 Android Auto browse tree. Exported because the
              MediaBrowserServiceCompat contract requires the car head unit
@@ -279,7 +284,6 @@
             android:directBootAware="false"
             android:exported="false">
             <intent-filter>
-                <action android:name="android.intent.action.ALARM_CLOCK" />
                 <action android:name="com.futura.action.ALARM_FIRE" />
                 <action android:name="com.futura.action.ALARM_DISMISS" />
                 <action android:name="com.futura.action.ALARM_SNOOZE" />

@@ -14,10 +14,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 /**
- * High-priority broadcast receiver intercepting both the OS
- * `ACTION_ALARM_CLOCK` and the app's own `com.futura.action.ALARM_FIRE`
- * intents. Acquires a short partial wake-lock before dispatching to
+ * Receives the app's own `ACTION_FIRE`, `ACTION_DISMISS` and
+ * `ACTION_SNOOZE` intents, which only [AlarmSchedulerImpl] creates as
+ * PendingIntents. Acquires a short partial wake-lock before dispatching to
  * [AlarmCoordinator] so the CPU doesn't sleep during the handoff.
+ * System clock integration is outward only, via [AlarmClockIntentPublisher].
  */
 @AndroidEntryPoint
 class AlarmReceiver : BroadcastReceiver() {
@@ -40,7 +41,6 @@ class AlarmReceiver : BroadcastReceiver() {
         wakeLock.acquire(WAKE_LOCK_TIMEOUT_MS)
         try {
             when (action) {
-                ACTION_ALARM_CLOCK,
                 ACTION_FIRE -> {
                     scope.launch {
                         try {
@@ -85,7 +85,6 @@ class AlarmReceiver : BroadcastReceiver() {
         private const val TAG = "AlarmReceiver"
         private const val WAKE_LOCK_TIMEOUT_MS = 30_000L
 
-        const val ACTION_ALARM_CLOCK = "android.intent.action.ALARM_CLOCK"
         const val ACTION_FIRE = "com.futura.action.ALARM_FIRE"
         const val ACTION_DISMISS = "com.futura.action.ALARM_DISMISS"
         const val ACTION_SNOOZE = "com.futura.action.ALARM_SNOOZE"
