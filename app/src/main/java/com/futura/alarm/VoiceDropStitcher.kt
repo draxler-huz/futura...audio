@@ -46,8 +46,8 @@ import kotlin.math.sin
  *      crossfading of identical in-phase signals produces a -3 dB dip
  *      at the midpoint; equal-power (sine/cosine pair) preserves
  *      perceived loudness across the boundary. The fade-in at voice
- *      start is implemented. The matching fade-out at voice end is not
- *      yet, so the end of a drop can still click.
+ *      start is implemented. The last 15 ms of a final chunk fade to
+ *      silence, so the end of a drop does not click.
  *
  * ── Mixing model ───────────────────────────────────────────────────
  *
@@ -109,8 +109,8 @@ class VoiceDropStitcher @Inject constructor() {
     @Volatile private var configured: Boolean = false
 
     /**
-     * Not invoked yet. consume() returns frames to its caller directly.
-     * Reserved for a background mixer, which does not exist yet.
+     * Called from consume() with the same buffer that consume() returns.
+     * Use one path: the sink, or the return value.
      */
     @Volatile var outputSink: ((FloatArray, Int) -> Unit)? = null
 
@@ -173,6 +173,9 @@ class VoiceDropStitcher @Inject constructor() {
                 pcm, sourceRate, sourceChannels
             ) ?: return@withLock false
 
+            // Only a final chunk ends the drop, so only it gets the fade-out.
+            val shaped = if (isFinal) fadeOutTail(resampled, config.targetChannels) else resampled
+
             synchronized(voiceLock) {
                 // A non-final chunk continues the drop in progress, so keep
                 // the unread tail and append. Replacing it would drop audio.
@@ -180,9 +183,9 @@ class VoiceDropStitcher @Inject constructor() {
                 voiceBuffer = if (pending != null && !voiceIsFinal &&
                     voiceReadIndex < pending.size
                 ) {
-                    pending.copyOfRange(voiceReadIndex, pending.size) + resampled
+                    pending.copyOfRange(voiceReadIndex, pending.size) + shaped
                 } else {
-                    resampled
+                    shaped
                 }
                 voiceReadIndex = 0
                 voiceIsFinal = isFinal
@@ -240,6 +243,13 @@ class VoiceDropStitcher @Inject constructor() {
             val ch = config.targetChannels
             val out = FloatArray(maxFrames * ch)
             mixIntoLocked(out, maxFrames)
+            // Also deliver to the sink if one is set. The sink and the return
+            // value carry the same buffer, so a caller should use one path.
+            outputSink?.let { sink ->
+                try { sink(out, maxFrames) } catch (e: Exception) {
+                    Log.w(tag, "outputSink threw", e)
+                }
+            }
             return out
         } catch (e: Exception) {
             Log.e(tag, "consume failed", e)
@@ -471,6 +481,28 @@ class VoiceDropStitcher @Inject constructor() {
             return s / sourceChannels
         }
         return pcm[frame * sourceChannels + c % sourceChannels]
+    }
+
+    // ── Voice end fade-out ─────────────────────────────────────
+
+    private val voiceFadeOutMs = 15f
+
+    /**
+     * Copy [src] and fade its last [voiceFadeOutMs] to silence, linearly.
+     * The copy matters: the same-rate path can return the caller's own
+     * array, and that array must not be changed.
+     */
+    private fun fadeOutTail(src: FloatArray, channels: Int): FloatArray {
+        val out = src.copyOf()
+        val frames = out.size / channels
+        val n = ((voiceFadeOutMs / 1000f) * config.targetSampleRate)
+            .toInt().coerceIn(0, frames)
+        for (k in 0 until n) {
+            val gain = (n - 1 - k).toFloat() / n
+            val f = frames - n + k
+            for (c in 0 until channels) out[f * channels + c] *= gain
+        }
+        return out
     }
 
     // ── Crossfade / equal-power helpers ──────────────────────────

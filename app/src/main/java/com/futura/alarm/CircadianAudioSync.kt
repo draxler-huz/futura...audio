@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -192,6 +193,9 @@ class CircadianAudioSync @Inject constructor(
             }
         }
 
+        if (nativeGainSink == null) {
+            Log.w(tag, "nativeGainSink is not set: gain is computed but not delivered")
+        }
         Log.i(
             tag,
             "Sync started (rampInterval=${tickIntervalMs}ms, " +
@@ -199,7 +203,26 @@ class CircadianAudioSync @Inject constructor(
         )
     }
 
-    suspend fun stop() = mutex.withLock { stopLocked() }
+    /**
+     * Stop the ramp and leave the DSP at silence. The loop is cancelled and
+     * joined first, so no late tick can overwrite the final 0f.
+     */
+    suspend fun stop() {
+        val job = mutex.withLock {
+            val running = tickJob
+            stopLocked()
+            running
+        }
+        job?.cancelAndJoin()
+        emitGain(0f)
+    }
+
+    private fun emitGain(gain: Float) {
+        val sink = nativeGainSink ?: return
+        try { sink(gain) } catch (e: Exception) {
+            Log.w(tag, "nativeGainSink threw on final gain", e)
+        }
+    }
 
     /** Current interpolated gain. Safe from any thread. */
     fun currentGain(): Float = currentGain
