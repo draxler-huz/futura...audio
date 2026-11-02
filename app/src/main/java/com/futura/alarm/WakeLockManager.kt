@@ -79,6 +79,28 @@ class WakeLockManager @Inject constructor(
         }
     }
 
+    /**
+     * Extends a held lease. The lock is not reference-counted, so acquiring
+     * it again resets its timeout to [MAX_ACQUIRE_MS] from now. Returns
+     * false if the tag is not held, so the caller can re-acquire.
+     */
+    suspend fun renewLease(tagName: String): Boolean {
+        mutex.withLock {
+            val held = locks[tagName] ?: return false
+            if (!held.lock.isHeld) {
+                locks.remove(tagName)
+                return false
+            }
+            return try {
+                held.lock.acquire(MAX_ACQUIRE_MS)
+                true
+            } catch (e: Exception) {
+                Log.w(tag, "Failed to renew '$tagName'", e)
+                false
+            }
+        }
+    }
+
     /** Release every held lock. Called on app teardown / alarm dismissal. */
     suspend fun releaseAll() {
         mutex.withLock {

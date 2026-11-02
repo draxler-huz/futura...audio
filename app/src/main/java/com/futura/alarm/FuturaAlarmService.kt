@@ -50,9 +50,26 @@ import kotlinx.coroutines.launch
 class FuturaAlarmService : Service() {
 
     @Inject lateinit var coordinator: AlarmCoordinator
+    @Inject lateinit var watchdog: MissedAlarmWatchdog
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var watchdogJob: Job? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        // The watchdog's wake lease follows the alarm lifecycle: armed on
+        // Firing, released on Snoozed or Dismissed.
+        scope.launch {
+            coordinator.events.collect { event ->
+                when (event) {
+                    is AlarmCoordinator.AlarmEvent.Firing -> watchdog.arm(event.specId)
+                    is AlarmCoordinator.AlarmEvent.Snoozed,
+                    is AlarmCoordinator.AlarmEvent.Dismissed -> watchdog.disarm()
+                    else -> Unit
+                }
+            }
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -67,6 +84,10 @@ class FuturaAlarmService : Service() {
                 false
             }
             if (hasSession) {
+                // A restored FIRING session needs its lease again.
+                coordinator.session.value
+                    ?.takeIf { it.phase == AlarmCoordinator.Phase.FIRING }
+                    ?.let { watchdog.arm(it.specId) }
                 startWatchdog()
             } else {
                 Log.i(TAG, "No session to resume; stopping")
