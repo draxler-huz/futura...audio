@@ -22,7 +22,7 @@ import javax.inject.Singleton
  *     bound verification latency to a constant budget on any device.
  */
 @Singleton
-class KeypadSaltEngine @Inject constructor() {
+internal class KeypadSaltEngine @Inject constructor() {
     private val tag = "KeypadSaltEngine"
     private val secureRandom = SecureRandom()
 

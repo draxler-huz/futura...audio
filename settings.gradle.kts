@@ -33,3 +33,4 @@ rootProject.name = "futura-audio"
 
 include(":app")
 include(":engine")
+include(":core:security")

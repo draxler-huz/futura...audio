@@ -2,20 +2,72 @@ package com.futura.alarm
 
 import android.content.Context
 import android.os.Build
+import android.util.Base64
 import android.util.Log
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
-import com.futura.R
+import com.futura.core.security.R
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.lang.ref.WeakReference
+import java.security.SecureRandom
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+
+/**
+ * Proof that a verification engine accepted the user, valid for one unlock.
+ *
+ * Public so that [VaultManager] can name it in its signatures. Nothing
+ * outside this file can implement it: the only implementation,
+ * [IssuedProof], is file-private, and only the file-private [mintProof]
+ * creates one. Other code can hold a proof but cannot manufacture one.
+ */
+interface VaultUnlockProof
+
+private class IssuedProof(val nonce: String, val expiresAtMs: Long) : VaultUnlockProof
+
+private const val PROOF_TTL_MS = 30_000L
+private const val PROOF_NONCE_BYTES = 16
+private val proofRandom = SecureRandom()
+private val proofLock = Any()
+
+/** nonce → expiry. Holds only proofs that are unspent and inside their TTL. */
+private val liveProofs = HashMap<String, Long>()
+
+/** Mint a proof. File-private, so only verification in this file can call it. */
+private fun mintProof(now: Long = System.currentTimeMillis()): VaultUnlockProof {
+    val bytes = ByteArray(PROOF_NONCE_BYTES).also { proofRandom.nextBytes(it) }
+    val nonce = Base64.encodeToString(
+        bytes,
+        Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
+    )
+    val expiresAt = now + PROOF_TTL_MS
+    synchronized(proofLock) {
+        liveProofs.entries.removeAll { it.value < now }
+        liveProofs[nonce] = expiresAt
+    }
+    return IssuedProof(nonce, expiresAt)
+}
+
+/** Spends proofs. Accepts only proofs minted in this file. */
+object VaultUnlockLedger {
+    /**
+     * True only for an unspent, unexpired proof minted in this file.
+     * Spending removes it, so a second call with the same proof returns false.
+     */
+    fun spend(proof: VaultUnlockProof, now: Long = System.currentTimeMillis()): Boolean {
+        if (proof !is IssuedProof) return false
+        return synchronized(proofLock) {
+            val expiresAt = liveProofs.remove(proof.nonce) ?: return false
+            expiresAt >= now
+        }
+    }
+}
 
 /**
  * Hardware-backed biometric gate for alarm dismissal.
@@ -43,9 +95,9 @@ import kotlinx.coroutines.withContext
  * do not cause a `BiometricPrompt` lifecycle crash.
  */
 @Singleton
-class BiometricWakeUpLock @Inject constructor(
+class BiometricWakeUpLock @Inject internal constructor(
     @ApplicationContext private val context: Context,
-    private val tokens: VaultUnlockTokens
+    private val pinVerifier: DecoyPinVerifier
 ) {
     private val tag = "BiometricWakeUpLock"
     private val mutex = Mutex()
@@ -59,14 +111,14 @@ class BiometricWakeUpLock @Inject constructor(
      * Launch the biometric prompt on [activity].
      *
      * @param onSuccess invoked exactly once when authentication succeeds,
-     *        with a fresh single-use [VaultUnlockToken] for the vault.
+     *        with a fresh single-use [VaultUnlockProof] for the vault.
      * @param onFailure invoked exactly once when authentication fails,
      *        is cancelled, or hardware is unavailable. Not invoked if a
      *        previous prompt is already active on a live activity.
      */
     suspend fun prompt(
         activity: FragmentActivity,
-        onSuccess: (VaultUnlockToken) -> Unit,
+        onSuccess: (VaultUnlockProof) -> Unit,
         onFailure: () -> Unit
     ) {
         mutex.withLock {
@@ -100,8 +152,8 @@ class BiometricWakeUpLock @Inject constructor(
                 ) {
                     activePrompt = null
                     activeActivity = null
-                    val token = tokens.issue()
-                    try { onSuccess(token) } catch (e: Exception) {
+                    val proof = mintProof()
+                    try { onSuccess(proof) } catch (e: Exception) {
                         Log.e(tag, "onSuccess threw", e)
                     }
                 }
@@ -156,6 +208,14 @@ class BiometricWakeUpLock @Inject constructor(
         activePrompt = null
         activeActivity = null
     }
+
+    /**
+     * Verify the decoy PIN and, only on a match, mint a proof. Returns null
+     * for a wrong PIN and for an unverifiable attempt alike, so the caller
+     * cannot tell them apart from the result.
+     */
+    suspend fun unlockWithPin(pin: String): VaultUnlockProof? =
+        if (pinVerifier.verify(pin) == true) mintProof() else null
 
     // ── Internals ──────────────────────────────────────────────────
 

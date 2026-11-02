@@ -136,6 +136,7 @@ ksp {
 
 dependencies {
     implementation(project(":engine"))
+    implementation(project(":core:security"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)

@@ -41,7 +41,7 @@ import kotlinx.coroutines.sync.withLock
  * `AEADBadTagException` failures under aggressive concurrency.
  */
 @Singleton
-class VaultCrypto @Inject constructor() {
+internal class VaultCrypto @Inject constructor() {
     private val tag = "VaultCrypto"
     private val mutex = Mutex()
 

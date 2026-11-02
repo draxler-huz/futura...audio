@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="alarm_biometric_prompt_title">Unlock to dismiss alarm</string>
+    <string name="alarm_biometric_prompt_subtitle">Biometric authentication is required</string>
+    <string name="alarm_biometric_prompt_cancel">Cancel</string>
+</resources>

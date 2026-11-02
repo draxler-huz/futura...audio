@@ -102,9 +102,6 @@
     <string name="alarm_notification_channel_service_name">Alarm playback</string>
     <string name="alarm_notification_channel_service_description">Keeps the alarm engine alive while the wake-up sound plays</string>
 
-    <string name="alarm_biometric_prompt_title">Unlock to dismiss alarm</string>
-    <string name="alarm_biometric_prompt_subtitle">Biometric authentication is required</string>
-    <string name="alarm_biometric_prompt_cancel">Cancel</string>
     <string name="alarm_biometric_error_failed">Biometric authentication failed</string>
     <string name="alarm_biometric_error_unavailable">Biometric unlock is not available on this device</string>
 

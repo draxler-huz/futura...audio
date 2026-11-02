@@ -24,7 +24,7 @@ import kotlinx.coroutines.sync.withLock
  * not to stop a determined adversary).
  */
 @Singleton
-class SecurityAccessAuditor @Inject constructor() {
+internal class SecurityAccessAuditor @Inject constructor() {
     private val tag = "SecurityAccessAuditor"
     private val mutex = Mutex()
 

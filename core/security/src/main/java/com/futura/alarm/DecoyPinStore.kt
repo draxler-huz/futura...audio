@@ -33,7 +33,7 @@ import kotlinx.coroutines.withContext
  * the record is on disk. Callers rely on that to know the decoy exists.
  */
 @Singleton
-class DecoyPinStore @Inject constructor(
+internal class DecoyPinStore @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     private val tag = "DecoyPinStore"
