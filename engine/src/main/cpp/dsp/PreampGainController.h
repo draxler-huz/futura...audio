@@ -64,6 +64,15 @@ public:
         } catch (...) { /* noexcept */ }
     }
 
+    // 0 is transparent; 1 adds the full tube/tape-style harmonic contour.
+    void set_warmth(float amount) noexcept {
+        if (!std::isfinite(amount)) return;
+        if (amount < 0.0f) amount = 0.0f;
+        if (amount > 1.0f) amount = 1.0f;
+        warmth_.store(amount, std::memory_order_release);
+    }
+    float warmth() const noexcept { return warmth_.load(std::memory_order_acquire); }
+
     // Any thread.
     float gain_db() const noexcept {
         return gain_db_.load(std::memory_order_acquire);
@@ -81,10 +90,26 @@ public:
     void process(float* buffer, size_t total_samples) const noexcept {
         try {
             const float g = gain_linear_.load(std::memory_order_acquire);
+            const float warmth = warmth_.load(std::memory_order_acquire);
             if (!std::isfinite(g)) return;      // unity pass-through
-            if (g == 1.0f || !buffer || total_samples == 0) return;
+            if ((g == 1.0f && warmth == 0.0f) || !buffer || total_samples == 0) return;
             for (size_t i = 0; i < total_samples; ++i) {
-                buffer[i] *= g;
+                float x = buffer[i] * g;
+                if (!std::isfinite(x)) { buffer[i] = 0.0f; continue; }
+                if (warmth > 0.0f) {
+                    const float square = x * x;
+                    x += warmth * (-0.055f * square + 0.018f * square * x);
+                    // Rational soft clipping approximates tanh while keeping
+                    // the per-sample audio path free of costly transcendental calls.
+                    const float magnitude = std::fabs(x);
+                    if (magnitude > 0.75f) {
+                        const float excess = magnitude - 0.75f;
+                        const float softened = 0.75f +
+                            excess / (1.0f + excess / 0.25f);
+                        x = std::copysign(softened, x);
+                    }
+                }
+                buffer[i] = x;
             }
         } catch (...) {
             // Buffer left unchanged on exception.
@@ -105,6 +130,7 @@ private:
     mutable std::mutex setter_mutex_;
     std::atomic<float> gain_db_{0.0f};
     std::atomic<float> gain_linear_{1.0f};
+    std::atomic<float> warmth_{0.0f};
 
     mutable std::mutex error_mutex_;
     std::string        last_error_;

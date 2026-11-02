@@ -13,15 +13,18 @@
 #define FUTURA_ENGINE_DSP_BASS_BOOST_SYNTHESIZER_H
 
 #include <atomic>
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <exception>
+
+#include "dsp/Biquad.h"
 
 namespace futura::engine::dsp {
 
 class BassBoostSynthesizer {
 public:
-    BassBoostSynthesizer() noexcept = default;
+    BassBoostSynthesizer() noexcept { set_sample_rate(48000.0f); }
     ~BassBoostSynthesizer() = default;
 
     BassBoostSynthesizer(const BassBoostSynthesizer&) = delete;
@@ -33,10 +36,12 @@ public:
     void set_sample_rate(float sample_rate) noexcept {
         try {
             if (!std::isfinite(sample_rate) || sample_rate <= 0.0f) return;
-            lp_coeff_.store(std::exp(-kTwoPi * CROSSOVER_HZ / sample_rate),
-                            std::memory_order_release);
-            hp_coeff_.store(std::exp(-kTwoPi * HARMONIC_DC_HZ / sample_rate),
-                            std::memory_order_release);
+            sample_rate_.store(sample_rate, std::memory_order_release);
+            for (int ch = 0; ch < 2; ++ch) {
+                low_band_[ch].set_cutoff(Biquad::Type::LowPass, CROSSOVER_HZ, 0.707f, sample_rate);
+                upper_band_[ch].set_cutoff(Biquad::Type::LowPass, UPPER_BAND_HZ, 0.707f, sample_rate);
+                harmonic_hp_[ch].set_cutoff(Biquad::Type::HighPass, HARMONIC_DC_HZ, 0.707f, sample_rate);
+            }
         } catch (...) { /* noexcept */ }
     }
 
@@ -57,34 +62,42 @@ public:
 
     // Audio thread. In-place on interleaved stereo frames.
     void process(float* buffer, size_t num_frames) noexcept {
+        process(buffer, num_frames, 2);
+    }
+
+    void process(float* buffer, size_t num_frames, int channels) noexcept {
         try {
-            if (!buffer || num_frames == 0) return;
+            if (!buffer || num_frames == 0 || channels < 1) return;
             const float amount = amount_.load(std::memory_order_acquire);
             if (amount <= 0.0f) return;
 
-            const float lpc = lp_coeff_.load(std::memory_order_acquire);
-            const float hpc = hp_coeff_.load(std::memory_order_acquire);
-            const float mix = amount * 0.5f;
+            const int active_channels = channels > 1 ? 2 : 1;
+            const float mix = amount * 0.42f;
 
             for (size_t i = 0; i < num_frames; ++i) {
-                for (int ch = 0; ch < 2; ++ch) {
-                    float& x = buffer[i * 2 + static_cast<size_t>(ch)];
+                for (int ch = 0; ch < active_channels; ++ch) {
+                    float& x = buffer[i * static_cast<size_t>(channels) +
+                                      static_cast<size_t>(ch)];
+                    if (!std::isfinite(x)) { x = 0.0f; continue; }
+                    const float low = low_band_[ch].process_sample(x);
+                    const float upper = upper_band_[ch].process_sample(x);
+                    const float fast = std::max(std::fabs(low), 0.65f * std::fabs(upper));
+                    const float attack = 1.0f - std::exp(-1.0f /
+                        (sample_rate_.load(std::memory_order_relaxed) * kAttackSeconds));
+                    const float release = 1.0f - std::exp(-1.0f /
+                        (sample_rate_.load(std::memory_order_relaxed) * kReleaseSeconds));
+                    const float env_coeff = fast > envelope_[ch] ? attack : release;
+                    envelope_[ch] += env_coeff * (fast - envelope_[ch]);
+                    const float transient = clamp((fast - envelope_[ch]) /
+                        std::max(fast, 1e-5f) * kTransientSensitivity, 0.0f, 1.0f);
 
-                    // One-pole low-pass isolates the bass band.
-                    lp_state_[ch] = lpc * lp_state_[ch] + (1.0f - lpc) * x;
-
-                    // Even-order distortion: lp * |lp| is a full-wave
-                    // harmonic source with energy at 2x the bass band.
-                    const float lp = lp_state_[ch];
-                    const float harmonic = lp * std::fabs(lp);
-
-                    // DC-block the harmonic so it adds no offset.
-                    const float blocked =
-                        hpc * (hp_out_[ch] + harmonic - hp_in_[ch]);
-                    hp_in_[ch] = harmonic;
-                    hp_out_[ch] = blocked;
-
-                    x += mix * blocked;
+                    // Rectification creates upper harmonics only while a
+                    // genuine low-band transient is present; the HP filter
+                    // removes the resulting DC and subsonic energy.
+                    const float shaped = low * std::fabs(low) +
+                                         0.45f * upper * std::fabs(upper);
+                    const float harmonic = harmonic_hp_[ch].process_sample(shaped);
+                    x += mix * transient * harmonic;
                 }
             }
         } catch (...) {
@@ -93,18 +106,20 @@ public:
     }
 
 private:
-    static constexpr float kTwoPi = 6.28318530717958647692f;
     static constexpr float CROSSOVER_HZ = 120.0f;
-    static constexpr float HARMONIC_DC_HZ = 10.0f;
+    static constexpr float UPPER_BAND_HZ = 210.0f;
+    static constexpr float HARMONIC_DC_HZ = 12.0f;
+    static constexpr float kAttackSeconds = 0.008f;
+    static constexpr float kReleaseSeconds = 0.12f;
+    static constexpr float kTransientSensitivity = 4.0f;
+    static float clamp(float value, float low, float high) noexcept {
+        return value < low ? low : (value > high ? high : value);
+    }
 
     std::atomic<float> amount_{0.0f};
-    std::atomic<float> lp_coeff_{0.0f};
-    std::atomic<float> hp_coeff_{0.0f};
-
-    // Audio-thread-only state.
-    float lp_state_[2] = {0.0f, 0.0f};
-    float hp_in_[2] = {0.0f, 0.0f};
-    float hp_out_[2] = {0.0f, 0.0f};
+    std::atomic<float> sample_rate_{48000.0f};
+    float envelope_[2] = {0.0f, 0.0f};
+    Biquad low_band_[2], upper_band_[2], harmonic_hp_[2];
 };
 
 }  // namespace futura::engine::dsp

@@ -136,6 +136,37 @@ public:
         }
     }
 
+    // Audio thread. Process one sample without allocating or blocking.
+    // This is useful for interleaved stereo processors that must preserve
+    // their per-channel state without deinterleaving into temporary buffers.
+    float process_sample(float input) noexcept {
+        apply_pending();
+        if (reset_requested_.exchange(false, std::memory_order_acq_rel)) {
+            z1_ = 0.0f;
+            z2_ = 0.0f;
+        }
+        if (!active_.load(std::memory_order_acquire)) return input;
+        if (!std::isfinite(input)) {
+            z1_ = 0.0f;
+            z2_ = 0.0f;
+            return 0.0f;
+        }
+
+        constexpr float kAntiDenormal = 1e-20f;
+        constexpr float kDenormalFlush = 1e-15f;
+        const float x = input + kAntiDenormal;
+        const float y = b0_.load(std::memory_order_relaxed) * x + z1_;
+        float z1 = b1_.load(std::memory_order_relaxed) * x
+                 - a1_.load(std::memory_order_relaxed) * y + z2_ + kAntiDenormal;
+        float z2 = b2_.load(std::memory_order_relaxed) * x
+                 - a2_.load(std::memory_order_relaxed) * y;
+        if (z1 > -kDenormalFlush && z1 < kDenormalFlush) z1 = 0.0f;
+        if (z2 > -kDenormalFlush && z2 < kDenormalFlush) z2 = 0.0f;
+        z1_ = z1;
+        z2_ = z2;
+        return std::isfinite(y) ? y : 0.0f;
+    }
+
     // Any thread — last applied coefficients, exposed for inspection.
     float b0() const noexcept { return b0_; }
     float b1() const noexcept { return b1_; }

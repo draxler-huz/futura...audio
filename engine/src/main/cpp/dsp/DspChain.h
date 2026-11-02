@@ -19,27 +19,9 @@
 //   • process() — audio thread, try_lock snapshot per call; never
 //     blocks. On contention, uses the previous snapshot.
 //
-// Growth seams (each stage) — every `// GROWTH:` comment below names
-// the exact dsp/*.h header that supplies the per-sample implementation:
-//   PreampGainController.h       (preamp stage)
-//   GraphicEq10Band.h / Biquad.h (EQ stage)
-//   BassBoostSynthesizer.h       (bass stage)
-//   StereoWidthExpander.h        (width stage)
-//   CrossfeedProcessor.h         (crossfeed stage)
-//   StereoToBinauralConverter.h  (binaural stage)
-//   FreeverbEngine.h             (reverb stage)
-//   DynamicRangeCompressor.h     (compressor stage)
-//   AutoGainControlEngine.h      (AGC stage)
-//   LoudnessMaximizer.h          (maximizer stage)
-//   DitherGenerator.h            (dither stage)
-//   PeakLevelDetector.h          (peak stage)
-//   PhaseInverter.h              (phase stage)
-//   HighPassDcBlockingFilter.h   (DC block stage)
-//
-// What works today: master enable, full config storage (matching
-// DspBridge.kt's 30-float layout), volume ramp, peak metering from the
-// last processed frame. The stage-by-stage per-sample work is stubbed
-// to identity (pass-through) with a GROWTH seam per stage.
+// Stage implementations are header-only. Configuration setters run on the
+// control thread; process() uses atomic settings and non-blocking filter
+// handoffs so it does not wait for the control thread.
 
 #ifndef FUTURA_ENGINE_DSP_DSP_CHAIN_H
 #define FUTURA_ENGINE_DSP_DSP_CHAIN_H
@@ -49,8 +31,24 @@
 #include <cstdint>
 #include <cstring>
 #include <exception>
+#include <cmath>
 #include <mutex>
 #include <string>
+
+#include "dsp/AutoGainControlEngine.h"
+#include "dsp/BassBoostSynthesizer.h"
+#include "dsp/CrossfeedProcessor.h"
+#include "dsp/DitherGenerator.h"
+#include "dsp/DynamicRangeCompressor.h"
+#include "dsp/FreeverbEngine.h"
+#include "dsp/GraphicEq10Band.h"
+#include "dsp/HighPassDcBlockingFilter.h"
+#include "dsp/LoudnessMaximizer.h"
+#include "dsp/PeakLevelDetector.h"
+#include "dsp/PhaseInverter.h"
+#include "dsp/PreampGainController.h"
+#include "dsp/StereoToBinauralConverter.h"
+#include "dsp/StereoWidthExpander.h"
 
 namespace futura::engine::dsp {
 
@@ -61,7 +59,7 @@ constexpr int CHAIN_EQ_BAND_COUNT      = 10;
 
 class DspChain {
 public:
-    DspChain() noexcept = default;
+    DspChain() noexcept { initialize_stages(); }
     ~DspChain() = default;
 
     DspChain(const DspChain&) = delete;
@@ -94,6 +92,9 @@ public:
             if (!config || len != static_cast<size_t>(CHAIN_CONFIG_FIELD_COUNT)) {
                 return false;
             }
+            for (size_t i = 0; i < len; ++i) {
+                if (!std::isfinite(config[i])) return false;
+            }
             std::lock_guard<std::mutex> lock(config_mutex_);
             decode_locked(config);
             return true;
@@ -123,30 +124,42 @@ public:
 
     void set_preamp_db(float db) noexcept {
         try {
+            if (!std::isfinite(db)) return;
             std::lock_guard<std::mutex> lock(config_mutex_);
             config_.preamp_db = clamp(db, -20.0f, 20.0f);
+            preamp_.set_gain_db(config_.preamp_db);
         } catch (...) { /* noexcept */ }
+    }
+
+    void set_preamp_warmth(float amount) noexcept {
+        preamp_.set_warmth(amount);
     }
 
     void set_eq_band_gain(int index, float gain_db) noexcept {
         try {
             if (index < 0 || index >= CHAIN_EQ_BAND_COUNT) return;
+            if (!std::isfinite(gain_db)) return;
             std::lock_guard<std::mutex> lock(config_mutex_);
             config_.eq_bands[index] = clamp(gain_db, -12.0f, 12.0f);
+            eq_.set_band_gain(index, config_.eq_bands[index]);
         } catch (...) { /* noexcept */ }
     }
 
     void set_bass_boost(float v) noexcept {
         try {
+            if (!std::isfinite(v)) return;
             std::lock_guard<std::mutex> lock(config_mutex_);
             config_.bass_boost = clamp(v, 0.0f, 1.0f);
+            bass_.set_amount(config_.bass_boost);
         } catch (...) { /* noexcept */ }
     }
 
     void set_stereo_width(float v) noexcept {
         try {
+            if (!std::isfinite(v)) return;
             std::lock_guard<std::mutex> lock(config_mutex_);
             config_.stereo_width = clamp(v, 0.0f, 2.0f);
+            width_.set_width(config_.stereo_width);
         } catch (...) { /* noexcept */ }
     }
 
@@ -154,6 +167,7 @@ public:
         try {
             std::lock_guard<std::mutex> lock(config_mutex_);
             config_.crossfeed_enabled = e;
+            crossfeed_.set_enabled(e);
         } catch (...) { /* noexcept */ }
     }
 
@@ -161,6 +175,7 @@ public:
         try {
             std::lock_guard<std::mutex> lock(config_mutex_);
             config_.binaural_enabled = e;
+            binaural_.set_enabled(e);
         } catch (...) { /* noexcept */ }
     }
 
@@ -168,15 +183,19 @@ public:
         try {
             std::lock_guard<std::mutex> lock(config_mutex_);
             config_.reverb_enabled = e;
+            reverb_.set_enabled(e);
         } catch (...) { /* noexcept */ }
     }
 
     void set_reverb_params(float room, float damping, float wet) noexcept {
         try {
+            if (!std::isfinite(room) || !std::isfinite(damping) || !std::isfinite(wet)) return;
             std::lock_guard<std::mutex> lock(config_mutex_);
             config_.reverb_room_size = clamp(room, 0.0f, 1.0f);
             config_.reverb_damping   = clamp(damping, 0.0f, 1.0f);
             config_.reverb_wet_level = clamp(wet, 0.0f, 1.0f);
+            reverb_.set_parameters(config_.reverb_room_size, config_.reverb_damping,
+                                   config_.reverb_wet_level);
         } catch (...) { /* noexcept */ }
     }
 
@@ -184,17 +203,49 @@ public:
         try {
             std::lock_guard<std::mutex> lock(config_mutex_);
             config_.compressor_enabled = e;
+            compressor_.set_enabled(e);
         } catch (...) { /* noexcept */ }
     }
 
     void set_compressor_params(float threshold_db, float ratio,
                                float attack_ms, float release_ms) noexcept {
         try {
+            if (!std::isfinite(threshold_db) || !std::isfinite(ratio) ||
+                !std::isfinite(attack_ms) || !std::isfinite(release_ms)) return;
             std::lock_guard<std::mutex> lock(config_mutex_);
             config_.compressor_threshold = clamp(threshold_db, -60.0f, 0.0f);
             config_.compressor_ratio     = clamp(ratio, 1.0f, 20.0f);
             config_.compressor_attack_ms = clamp(attack_ms, 0.1f, 200.0f);
             config_.compressor_release_ms = clamp(release_ms, 10.0f, 1000.0f);
+            compressor_.set_parameters(config_.compressor_threshold, config_.compressor_ratio,
+                                       config_.compressor_attack_ms,
+                                       config_.compressor_release_ms);
+        } catch (...) { /* noexcept */ }
+    }
+
+    void set_auto_gain_control_enabled(bool enabled) noexcept {
+        try {
+            std::lock_guard<std::mutex> lock(config_mutex_);
+            config_.auto_gain_control_enabled = enabled;
+            agc_.set_enabled(enabled);
+        } catch (...) { /* noexcept */ }
+    }
+
+    void set_crossfeed_amount(float amount) noexcept {
+        if (!std::isfinite(amount)) return;
+        try {
+            std::lock_guard<std::mutex> lock(config_mutex_);
+            config_.crossfeed_amount = clamp(amount, 0.0f, 1.0f);
+            crossfeed_.set_amount(config_.crossfeed_amount);
+        } catch (...) { /* noexcept */ }
+    }
+
+    void set_phase_inverted(bool left, bool right) noexcept {
+        try {
+            std::lock_guard<std::mutex> lock(config_mutex_);
+            config_.phase_inverted_left = left;
+            config_.phase_inverted_right = right;
+            phase_inverter_.set_inverted(left, right);
         } catch (...) { /* noexcept */ }
     }
 
@@ -238,64 +289,46 @@ public:
             const size_t total_samples =
                 num_frames * static_cast<size_t>(channels);
 
-            // ── Volume ramp (identical to ZeroAllocRenderLoop) ────
-            float s = smoothed_volume_;
-            for (size_t i = 0; i < total_samples; ++i) {
-                s += (target_volume - s) * VOLUME_RAMP_COEFF;
-                buffer[i] *= s;
+            // Volume transitions start at a zero crossing (or a short
+            // timeout) and follow a smooth logarithmic S-curve.
+            for (size_t frame = 0; frame < num_frames; ++frame) {
+                const size_t base = frame * static_cast<size_t>(channels);
+                const float left = std::isfinite(buffer[base]) ? buffer[base] : 0.0f;
+                const float right = channels > 1 && std::isfinite(buffer[base + 1])
+                                  ? buffer[base + 1] : left;
+                const float volume = next_volume(target_volume, left, right);
+                for (int ch = 0; ch < channels; ++ch) {
+                    float& sample = buffer[base + static_cast<size_t>(ch)];
+                    sample = std::isfinite(sample) ? sample * volume : 0.0f;
+                }
+                last_volume_input_[0] = left;
+                last_volume_input_[1] = right;
             }
-            smoothed_volume_ = s;
 
-            // ── GROWTH: preamp — PreampGainController.h ───────────
-            // Apply config_.preamp_db as a global gain before EQ.
-            // Requires: db_to_linear(config_.preamp_db) multiplier.
+            // Preamp saturation is before EQ so the EQ can shape its harmonics.
+            preamp_.process(buffer, total_samples);
+            if (channels == 1) eq_.process(buffer, num_frames);
+            else eq_.process_stereo(buffer, num_frames, channels);
+            bass_.process(buffer, num_frames, channels);
+            width_.process(buffer, num_frames, channels);
 
-            // ── GROWTH: 10-band EQ — GraphicEq10Band.h + Biquad.h ─
-            // Iterate config_.eq_bands[0..9]; each drives a biquad
-            // stage; coefficients cached per band and recomputed on
-            // change (see Biquad.h).
+            // Crossfeed and binaural rendering are mutually exclusive.
+            if (snapshot_.binaural_enabled) {
+                binaural_.process(buffer, num_frames, channels);
+            } else if (snapshot_.crossfeed_enabled) {
+                crossfeed_.process(buffer, num_frames, channels);
+            }
+            reverb_.process(buffer, num_frames, channels);
+            compressor_.process(buffer, num_frames, channels);
+            agc_.process(buffer, num_frames, channels);
+            maximizer_.process(buffer, num_frames, channels);
 
-            // ── GROWTH: bass boost — BassBoostSynthesizer.h ───────
-            // Harmonic synthesis (not low-shelf), enabled when
-            // config_.bass_boost > 0.
-
-            // ── GROWTH: stereo width — StereoWidthExpander.h ──────
-            // M/S manipulation, coefficient derived from
-            // config_.stereo_width (0=mono, 1=unity, 2=double).
-
-            // ── GROWTH: crossfeed — CrossfeedProcessor.h ──────────
-            // Bauer BS2B; enabled when config_.crossfeed_enabled.
-            // Mutually exclusive with binaural (caller contract).
-
-            // ── GROWTH: binaural — StereoToBinauralConverter.h ────
-            // HRTF; enabled when config_.binaural_enabled.
-
-            // ── GROWTH: reverb — FreeverbEngine.h ─────────────────
-            // Freeverb; enabled when config_.reverb_enabled;
-            // parameters from config_.reverb_*.
-
-            // ── GROWTH: compressor — DynamicRangeCompressor.h ─────
-            // Enabled when config_.compressor_enabled;
-            // parameters from config_.compressor_*.
-
-            // ── GROWTH: AGC — AutoGainControlEngine.h ─────────────
-            // Enabled when config_.auto_gain_control_enabled.
-
-            // ── GROWTH: loudness maximizer — LoudnessMaximizer.h ──
-            // Always active per chain contract (safety processor).
-
-            // ── GROWTH: dither — DitherGenerator.h ────────────────
-            // Applied at 24→16-bit truncation, not here. No-op at
-            // float32 output.
-
-            // ── Peak metering (always) ────────────────────────────
+            // This chain emits float32; the dither stage remains a no-op here.
+            // Integer-output callers can use DitherGenerator with 16 or 24 bits.
+            dither_.process(buffer, num_frames, channels, 32);
             update_peaks(buffer, num_frames, channels);
-
-            // ── GROWTH: phase invert — PhaseInverter.h ────────────
-            // Per-channel sign flip when config_.phase_inverted_*.
-
-            // ── GROWTH: DC block — HighPassDcBlockingFilter.h ─────
-            // Always active per chain contract (safety processor).
+            phase_inverter_.process(buffer, num_frames, channels);
+            dc_blocker_.process(buffer, num_frames, channels);
         } catch (...) {
             // Rule 6. Leave buffer in a safe state — input float32 is
             // already a valid audio signal; failing to apply DSP is
@@ -345,6 +378,101 @@ private:
         return v;
     }
 
+    void initialize_stages() noexcept {
+        constexpr float sample_rate = 48000.0f;
+        eq_.set_sample_rate(sample_rate);
+        bass_.set_sample_rate(sample_rate);
+        width_.set_sample_rate(sample_rate);
+        crossfeed_.set_sample_rate(sample_rate);
+        binaural_.set_sample_rate(sample_rate);
+        reverb_.set_sample_rate(sample_rate);
+        compressor_.set_sample_rate(sample_rate);
+        agc_.set_sample_rate(sample_rate);
+        maximizer_.set_sample_rate(sample_rate);
+        peak_detector_.set_sample_rate(sample_rate);
+        dc_blocker_.set_sample_rate(sample_rate);
+        sync_components_locked();
+    }
+
+    // Caller holds config_mutex_.
+    void sync_components_locked() noexcept {
+        preamp_.set_gain_db(config_.preamp_db);
+        for (int i = 0; i < CHAIN_EQ_BAND_COUNT; ++i) {
+            eq_.set_band_gain(i, config_.eq_bands[i]);
+        }
+        bass_.set_amount(config_.bass_boost);
+        width_.set_width(config_.stereo_width);
+        crossfeed_.set_enabled(config_.crossfeed_enabled);
+        crossfeed_.set_amount(config_.crossfeed_amount);
+        binaural_.set_enabled(config_.binaural_enabled);
+        reverb_.set_enabled(config_.reverb_enabled);
+        reverb_.set_parameters(config_.reverb_room_size, config_.reverb_damping,
+                               config_.reverb_wet_level);
+        compressor_.set_enabled(config_.compressor_enabled);
+        compressor_.set_parameters(config_.compressor_threshold,
+                                   config_.compressor_ratio,
+                                   config_.compressor_attack_ms,
+                                   config_.compressor_release_ms);
+        agc_.set_enabled(config_.auto_gain_control_enabled);
+        phase_inverter_.set_inverted(config_.phase_inverted_left,
+                                     config_.phase_inverted_right);
+    }
+
+    bool crossing_started(float left, float right) const noexcept {
+        const bool left_cross = (last_volume_input_[0] <= 0.0f && left > 0.0f) ||
+                                (last_volume_input_[0] >= 0.0f && left < 0.0f);
+        const bool right_cross = (last_volume_input_[1] <= 0.0f && right > 0.0f) ||
+                                 (last_volume_input_[1] >= 0.0f && right < 0.0f);
+        return left_cross || right_cross;
+    }
+
+    static float gain_to_db(float gain) noexcept {
+        return 20.0f * std::log10(gain > 0.0f ? gain : 1.0e-4f);
+    }
+
+    float interpolate_volume(float progress) const noexcept {
+        if (progress <= 0.0f) return volume_ramp_start_;
+        if (progress >= 1.0f) return volume_ramp_target_;
+        if (volume_ramp_start_ <= 0.0f && volume_ramp_target_ <= 0.0f) return 0.0f;
+        const float smooth = progress * progress * (3.0f - 2.0f * progress);
+        const float db = volume_ramp_start_db_ +
+                         (volume_ramp_target_db_ - volume_ramp_start_db_) * smooth;
+        return std::pow(10.0f, db * 0.05f);
+    }
+
+    float next_volume(float requested, float left, float right) noexcept {
+        if (!std::isfinite(requested)) requested = smoothed_volume_;
+        requested = clamp(requested, 0.0f, 4.0f);
+        if (requested != observed_volume_target_) {
+            observed_volume_target_ = requested;
+            pending_volume_target_ = requested;
+            volume_wait_frames_ = 0;
+            volume_ramp_active_ = false;
+        }
+        if (!volume_ramp_active_ && pending_volume_target_ != smoothed_volume_) {
+            if (crossing_started(left, right) ||
+                ++volume_wait_frames_ >= VOLUME_ZERO_CROSS_TIMEOUT) {
+                volume_ramp_start_ = smoothed_volume_;
+                volume_ramp_target_ = pending_volume_target_;
+                volume_ramp_start_db_ = gain_to_db(volume_ramp_start_);
+                volume_ramp_target_db_ = gain_to_db(volume_ramp_target_);
+                volume_ramp_frames_ = 0;
+                volume_ramp_active_ = true;
+            }
+        }
+        if (volume_ramp_active_) {
+            ++volume_ramp_frames_;
+            const float progress = static_cast<float>(volume_ramp_frames_) /
+                                   static_cast<float>(VOLUME_RAMP_SAMPLES);
+            smoothed_volume_ = interpolate_volume(progress < 1.0f ? progress : 1.0f);
+            if (volume_ramp_frames_ >= VOLUME_RAMP_SAMPLES) {
+                smoothed_volume_ = volume_ramp_target_;
+                volume_ramp_active_ = false;
+            }
+        }
+        return smoothed_volume_;
+    }
+
     // Decode the 30-float interchange buffer into config_. Caller holds
     // config_mutex_.
     void decode_locked(const float* c) noexcept {
@@ -372,6 +500,7 @@ private:
         config_.loudness_maximizer_enabled = c[27] != 0.0f;
         config_.phase_inverted_left  = c[28] != 0.0f;
         config_.phase_inverted_right = c[29] != 0.0f;
+        sync_components_locked();
     }
 
     // Encode config_ into the 30-float interchange buffer. Caller holds
@@ -403,21 +532,10 @@ private:
     // Compute per-channel peak from the buffer and store into atomics.
     void update_peaks(const float* buf, size_t frames, int channels) noexcept {
         try {
-            if (channels < 1) return;
-            float l = 0.0f, r = 0.0f;
-            const size_t total = frames * static_cast<size_t>(channels);
-            const size_t step  = static_cast<size_t>(channels);
-            for (size_t i = 0; i < total; i += step) {
-                const float sl = buf[i];
-                // Mono has no second channel; meter the same sample on both.
-                const float sr = channels > 1 ? buf[i + 1] : sl;
-                const float al = sl < 0 ? -sl : sl;
-                const float ar = sr < 0 ? -sr : sr;
-                if (al > l) l = al;
-                if (ar > r) r = ar;
-            }
-            peak_left_.store(l, std::memory_order_relaxed);
-            peak_right_.store(r, std::memory_order_relaxed);
+            if (!buf || channels < 1) return;
+            peak_detector_.process(buf, frames, channels);
+            peak_left_.store(peak_detector_.peak_left(), std::memory_order_relaxed);
+            peak_right_.store(peak_detector_.peak_right(), std::memory_order_relaxed);
         } catch (...) { /* noexcept */ }
     }
 
@@ -429,7 +547,8 @@ private:
     }
 
     // ── Constants ─────────────────────────────────────────────────
-    static constexpr float VOLUME_RAMP_COEFF = 0.0005f;
+    static constexpr size_t VOLUME_RAMP_SAMPLES = 576;  // 12 ms at 48 kHz
+    static constexpr size_t VOLUME_ZERO_CROSS_TIMEOUT = 240; // 5 ms fallback
 
     // ── State ─────────────────────────────────────────────────────
     // Rule 7: config_ guarded by config_mutex_. snapshot_ is audio-
@@ -439,6 +558,28 @@ private:
     ChainConfig        config_;
     ChainConfig        snapshot_;
     float              smoothed_volume_ = 1.0f;
+    float observed_volume_target_ = 1.0f;
+    float pending_volume_target_ = 1.0f;
+    float volume_ramp_start_ = 1.0f, volume_ramp_target_ = 1.0f;
+    float volume_ramp_start_db_ = 0.0f, volume_ramp_target_db_ = 0.0f;
+    size_t volume_wait_frames_ = 0, volume_ramp_frames_ = 0;
+    bool volume_ramp_active_ = false;
+    float last_volume_input_[2] = {0.0f, 0.0f};
+
+    PreampGainController preamp_;
+    GraphicEq10Band eq_;
+    BassBoostSynthesizer bass_;
+    StereoWidthExpander width_;
+    CrossfeedProcessor crossfeed_;
+    StereoToBinauralConverter binaural_;
+    FreeverbEngine reverb_;
+    DynamicRangeCompressor compressor_;
+    AutoGainControlEngine agc_;
+    LoudnessMaximizer maximizer_;
+    DitherGenerator dither_;
+    PeakLevelDetector peak_detector_;
+    PhaseInverter phase_inverter_;
+    HighPassDcBlockingFilter dc_blocker_;
 
     std::atomic<bool>  enabled_{true};
     std::atomic<float> peak_left_{0.0f};

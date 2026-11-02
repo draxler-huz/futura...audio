@@ -17,7 +17,7 @@
 // Threading: set_band_gain is control-thread; process is audio-thread.
 // Each Biquad applies its own pending coefficients at the top of its
 // process() call (via try_lock in Biquad::apply_pending) — so
-// GraphicEq10Band itself needs no mutex.
+    // GraphicEq10Band itself needs no audio-thread mutex.
 //
 // Sample rate: a band whose centre frequency is at or above 0.98 × nyquist
 // is held at 0 dB (identity). At 44.1kHz the 16kHz band stays active; at
@@ -68,9 +68,7 @@ public:
         try {
             if (!std::isfinite(sample_rate) || sample_rate <= 0.0f) return;
             sample_rate_ = sample_rate;
-            for (int i = 0; i < BAND_COUNT; ++i) {
-                configure_band(i);
-            }
+            recompute_bands();
         } catch (...) { /* noexcept */ }
     }
 
@@ -85,8 +83,21 @@ public:
             if (gain_db > MAX_GAIN_DB) gain_db = MAX_GAIN_DB;
             if (gain_db == gains_[band_index]) return;   // no-op
             gains_[band_index] = gain_db;
-            configure_band(band_index);
+            recompute_bands();
         } catch (...) { /* noexcept */ }
+    }
+
+    // Control-thread controls for the psychoacoustic curve and broad-band
+    // loudness compensation. A value of zero restores uncoupled EQ behavior.
+    void set_tilt_coupling(float amount) noexcept {
+        if (!std::isfinite(amount)) return;
+        tilt_coupling_.store(clamp(amount, 0.0f, 1.0f), std::memory_order_release);
+        recompute_bands();
+    }
+    void set_auto_compensation(float amount) noexcept {
+        if (!std::isfinite(amount)) return;
+        auto_compensation_.store(clamp(amount, 0.0f, 1.0f), std::memory_order_release);
+        recompute_bands();
     }
 
     // Any thread.
@@ -107,20 +118,82 @@ public:
                 // are skipped. A band that goes from non-zero to zero stops
                 // being processed at once, so its filter tail is cut off
                 // rather than ringing out; at EQ settings this is inaudible.
-                if (gains_[i].load(std::memory_order_relaxed) == 0.0f) continue;
-                bands_[i].process(buffer, num_samples);
+                if (effective_gains_[i].load(std::memory_order_relaxed) == 0.0f) continue;
+                bands_[0][i].process(buffer, num_samples);
+            }
+            const float compensation = compensation_gain_.load(std::memory_order_acquire);
+            if (compensation != 1.0f) {
+                for (size_t i = 0; i < num_samples; ++i) buffer[i] *= compensation;
             }
         } catch (...) { /* buffer left unchanged */ }
+    }
+
+    // Interleaved stereo path used by DspChain. Independent filter state is
+    // kept per channel; extra channels are not modified.
+    void process_stereo(float* buffer, size_t frames, int channels = 2) noexcept {
+        try {
+            if (!buffer || frames == 0 || channels < 2) return;
+            for (size_t frame = 0; frame < frames; ++frame) {
+                const size_t base = frame * static_cast<size_t>(channels);
+                for (int ch = 0; ch < 2; ++ch) {
+                    float value = buffer[base + static_cast<size_t>(ch)];
+                    for (int band = 0; band < BAND_COUNT; ++band) {
+                        if (effective_gains_[band].load(std::memory_order_relaxed) == 0.0f) continue;
+                        value = bands_[ch][band].process_sample(value);
+                    }
+                    buffer[base + static_cast<size_t>(ch)] =
+                        value * compensation_gain_.load(std::memory_order_relaxed);
+                }
+            }
+        } catch (...) { /* buffer left valid */ }
     }
 
     // Reset all filter histories. Control thread; not for use mid-process.
     void reset() noexcept {
         try {
-            for (int i = 0; i < BAND_COUNT; ++i) bands_[i].reset();
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < BAND_COUNT; ++i) bands_[ch][i].reset();
         } catch (...) { /* noexcept */ }
     }
 
 private:
+    static float clamp(float value, float low, float high) noexcept {
+        return value < low ? low : (value > high ? high : value);
+    }
+
+    void recompute_bands() noexcept {
+        try {
+            float low = 0.0f, high = 0.0f, weighted = 0.0f, weights = 0.0f;
+            static constexpr float kWeights[BAND_COUNT] = {
+                0.45f, 0.6f, 0.78f, 0.92f, 1.0f,
+                1.0f, 0.96f, 0.86f, 0.68f, 0.5f
+            };
+            for (int i = 0; i < BAND_COUNT; ++i) {
+                const float gain = gains_[i].load(std::memory_order_relaxed);
+                if (i < BAND_COUNT / 2) low += gain;
+                else high += gain;
+                weighted += gain * kWeights[i];
+                weights += kWeights[i];
+            }
+            const float tilt = clamp((high - low) * 0.1f, -3.0f, 3.0f);
+            const float coupling = tilt_coupling_.load(std::memory_order_relaxed);
+            for (int i = 0; i < BAND_COUNT; ++i) {
+                const float position = (static_cast<float>(i) - 4.5f) / 4.5f;
+                const float effective = clamp(
+                    gains_[i].load(std::memory_order_relaxed) -
+                    tilt * position * coupling, MIN_GAIN_DB, MAX_GAIN_DB);
+                effective_gains_[i].store(effective, std::memory_order_release);
+                configure_band(i);
+            }
+            const float mean_gain = weights > 0.0f ? weighted / weights : 0.0f;
+            const float compensation_db = clamp(
+                -mean_gain * 0.3f * auto_compensation_.load(std::memory_order_relaxed),
+                -4.0f, 4.0f);
+            compensation_gain_.store(std::pow(10.0f, compensation_db * 0.05f),
+                                     std::memory_order_release);
+        } catch (...) { /* retain the last valid coefficients */ }
+    }
+
     // Control thread. Bands at or above the usable limit are held at 0 dB
     // (identity) instead of reset, so an old filter cannot keep running
     // after a sample-rate change.
@@ -129,17 +202,23 @@ private:
             if (sample_rate_ <= 0.0f) return;
             const float nyquist = sample_rate_ * 0.5f;
             const float freq = center_frequencies()[index];
-            const float gain = gains_[index].load(std::memory_order_relaxed);
+            const float gain = effective_gains_[index].load(std::memory_order_relaxed);
             const bool above_limit = freq >= nyquist * 0.98f;
             const float effective_gain = above_limit ? 0.0f : gain;
-            bands_[index].set_peak_or_shelf(
-                Biquad::Type::Peaking, freq, Q, effective_gain, sample_rate_);
+            for (int ch = 0; ch < 2; ++ch) {
+                bands_[ch][index].set_peak_or_shelf(
+                    Biquad::Type::Peaking, freq, Q, effective_gain, sample_rate_);
+            }
         } catch (...) { /* noexcept */ }
     }
 
     float sample_rate_ = 0.0f;
     std::atomic<float> gains_[BAND_COUNT]{};
-    Biquad bands_[BAND_COUNT];
+    std::atomic<float> effective_gains_[BAND_COUNT]{};
+    std::atomic<float> tilt_coupling_{0.18f};
+    std::atomic<float> auto_compensation_{0.35f};
+    std::atomic<float> compensation_gain_{1.0f};
+    Biquad bands_[2][BAND_COUNT];
 };
 
 }  // namespace futura::engine::dsp
