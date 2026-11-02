@@ -26,7 +26,8 @@ import kotlinx.coroutines.withContext
  */
 @Singleton
 class DecoyPinVerifier @Inject constructor(
-    private val store: DecoyPinStore
+    private val store: DecoyPinStore,
+    private val tokens: VaultUnlockTokens
 ) {
     private val tag = "DecoyPinVerifier"
 
@@ -73,6 +74,14 @@ class DecoyPinVerifier @Inject constructor(
             null
         }
     }
+
+    /**
+     * Verify [enteredPin] and, only on a match, issue a vault unlock token.
+     * Returns `null` for both a wrong PIN and an unverifiable attempt, so
+     * the caller cannot tell them apart from the token alone.
+     */
+    suspend fun verifyForUnlock(enteredPin: String): VaultUnlockToken? =
+        if (verify(enteredPin) == true) tokens.issue() else null
 
     /** Derive the hash for a new PIN using the given salt + iterations.
      *  Used by the PIN-setup flow (not delivered yet). */

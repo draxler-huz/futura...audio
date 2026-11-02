@@ -44,7 +44,8 @@ import kotlinx.coroutines.withContext
  */
 @Singleton
 class BiometricWakeUpLock @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val tokens: VaultUnlockTokens
 ) {
     private val tag = "BiometricWakeUpLock"
     private val mutex = Mutex()
@@ -57,14 +58,15 @@ class BiometricWakeUpLock @Inject constructor(
     /**
      * Launch the biometric prompt on [activity].
      *
-     * @param onSuccess invoked exactly once when authentication succeeds.
+     * @param onSuccess invoked exactly once when authentication succeeds,
+     *        with a fresh single-use [VaultUnlockToken] for the vault.
      * @param onFailure invoked exactly once when authentication fails,
      *        is cancelled, or hardware is unavailable. Not invoked if a
      *        previous prompt is already active on a live activity.
      */
     suspend fun prompt(
         activity: FragmentActivity,
-        onSuccess: () -> Unit,
+        onSuccess: (VaultUnlockToken) -> Unit,
         onFailure: () -> Unit
     ) {
         mutex.withLock {
@@ -98,7 +100,8 @@ class BiometricWakeUpLock @Inject constructor(
                 ) {
                     activePrompt = null
                     activeActivity = null
-                    try { onSuccess() } catch (e: Exception) {
+                    val token = tokens.issue()
+                    try { onSuccess(token) } catch (e: Exception) {
                         Log.e(tag, "onSuccess threw", e)
                     }
                 }

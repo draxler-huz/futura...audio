@@ -17,7 +17,7 @@ import kotlinx.coroutines.sync.withLock
  *   1. **Gatekeep the vault after biometric or PIN verification.**
  *      The vault is LOCKED until [unlock] is called from a caller that
  *      has already verified the user (`BiometricWakeUpLock.prompt`
- *      succeeded, or `DecoyPinVerifier.verify` returned `true`). While
+ *      succeeded, or `DecoyPinVerifier.verifyForUnlock` returned a token). While
  *      LOCKED, [encryptPayload] and [decryptPayload] return null; only
  *      an unlocked vault can read or write secrets.
  *
@@ -41,7 +41,8 @@ import kotlinx.coroutines.sync.withLock
 class VaultManager @Inject constructor(
     private val crypto: VaultCrypto,
     private val pinStore: DecoyPinStore,
-    private val auditor: SecurityAccessAuditor
+    private val auditor: SecurityAccessAuditor,
+    private val tokens: VaultUnlockTokens
 ) {
     private val tag = "VaultManager"
     private val mutex = Mutex()
@@ -54,7 +55,9 @@ class VaultManager @Inject constructor(
     // ── Gate ────────────────────────────────────────────────────────
 
     /**
-     * Unlock the vault. Must be called only after the caller has
+     * Unlock the vault. Requires a [VaultUnlockToken] from a successful
+     * verification. The token is spent here, so it works once and only
+     * within its time window. Must be called only after the caller has
      * verified the user (biometric or PIN). On success, subsequent
      * [encryptPayload] / [decryptPayload] calls succeed until [lock] or
      * [destroy] is called.
@@ -69,7 +72,11 @@ class VaultManager @Inject constructor(
      *         already DESTROYED and cannot be re-opened without a full
      *         reset flow).
      */
-    suspend fun unlock(): Boolean = mutex.withLock {
+    suspend fun unlock(token: VaultUnlockToken): Boolean = mutex.withLock {
+        if (!tokens.consume(token)) {
+            Log.w(tag, "unlock: token rejected (unknown, spent, or expired)")
+            return@withLock false
+        }
         if (_state.value == State.DESTROYED) {
             Log.w(tag, "unlock: vault is DESTROYED; refusing")
             return@withLock false
@@ -196,7 +203,11 @@ class VaultManager @Inject constructor(
      * deliberate destroy. Only callable from DESTROYED; a no-op in any
      * other state.
      */
-    suspend fun resetAfterDestroy(): Boolean = mutex.withLock {
+    suspend fun resetAfterDestroy(token: VaultUnlockToken): Boolean = mutex.withLock {
+        if (!tokens.consume(token)) {
+            Log.w(tag, "resetAfterDestroy: token rejected (unknown, spent, or expired)")
+            return@withLock false
+        }
         if (_state.value != State.DESTROYED) return@withLock false
         try {
             auditor.reset()
