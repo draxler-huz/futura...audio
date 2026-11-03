@@ -202,7 +202,28 @@ class AlarmActivity : FragmentActivity() {
             Log.e(TAG, "configureWindow failed", e)
         }
     }
+   // Inside AlarmActivity.onCreate, after handleIntent(intent) and the
+// activeSpecId null-check:
 
+// If the overlay permission is missing, this is the first time the
+// user has seen the alarm fire while unlocked. Prompt them with a
+// single-line rationale before opening Settings. After they return,
+// the next alarm fire will use the overlay path.
+if (!OverlayPermissionHelper.canDrawOverlays(this) && !isFinishing) {
+    android.app.AlertDialog.Builder(this)
+        .setTitle("Alarm won't appear over other apps")
+        .setMessage(
+            "To make the alarm appear over whatever is on your screen, " +
+                "grant \"Display over other apps\" permission. " +
+                "Without it, the alarm appears only on the lock screen " +
+                "or as a notification."
+        )
+        .setPositiveButton("Grant") { _, _ ->
+            OverlayPermissionHelper.requestOverlayPermission(this)
+        }
+        .setNegativeButton("Not now", null)
+        .show()
+}
     private fun handleIntent(intent: Intent?) {
         intent ?: return
         val specId = intent.data?.lastPathSegment
