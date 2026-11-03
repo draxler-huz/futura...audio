@@ -40,7 +40,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
-    <!-- Foreground services (API 28+) + typed permission (API 34+) -->
+    <!-- Foreground services (API 28+) + typed permissions (API 34+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
@@ -158,6 +158,11 @@
             android:name="coil.ImageLoaderFactory"
             android:value="com.futura.di.CoilImageLoaderFactory" />
 
+        <!-- Static launcher shortcuts. Consumed by ShortcutManagerCompat. -->
+        <meta-data
+            android:name="android.app.shortcuts"
+            android:resource="@xml/shortcuts" />
+
         <!-- ═══════════════════════════════════════════════════════════════
              Activities
              ═══════════════════════════════════════════════════════════════ -->
@@ -173,8 +178,9 @@
             android:theme="@style/Theme.Futura"
             android:windowSoftInputMode="adjustResize">
 
-            <!-- Deep-link surface for TaskerIntentGateway and internal
-                 MediaSession navigation actions. -->
+            <!-- Deep-link surface for TaskerIntentGateway, internal
+                 MediaSession navigation actions, and the alarm full-screen
+                 intent (futura://alarm/<specId>). -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -220,8 +226,10 @@
             </intent-filter>
         </activity-alias>
 
-        <!-- Biometric unlock + alarm UI. Launched from FuturaAlarmService via
-             a full-screen PendingIntent (PendingIntentFactory). -->
+        <!-- Biometric unlock + alarm UI. Launched from
+             DynamicNotificationLauncher via a full-screen PendingIntent
+             (PendingIntentFactory), and from FullScreenIntentReceiver
+             when SYSTEM_ALERT_WINDOW grants a background activity launch. -->
         <activity
             android:name=".alarm.AlarmActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density|smallestScreenSize"
@@ -294,11 +302,13 @@
             </intent-filter>
         </receiver>
 
-
-
+        <!-- Overlay-path launcher: fires when SYSTEM_ALERT_WINDOW is
+             granted and DynamicNotificationLauncher wants to foreground
+             the alarm UI over another app. -->
         <receiver
             android:name=".alarm.FullScreenIntentReceiver"
             android:exported="false" />
+
         <!-- BOOT_COMPLETED re-arm scheduler (BootCompletionHandler). -->
         <receiver
             android:name=".alarm.BootCompletionHandler"
@@ -397,11 +407,7 @@
                 android:resource="@xml/futura_widget_info" />
         </receiver>
 
-            <meta-data
-                android:name="android.app.shortcuts"
-                android:resource="@xml/shortcuts" />
-
-            <!-- Media session resumption from the OS media panel. -->
+        <!-- Media session resumption from the OS media panel. -->
         <receiver
             android:name="androidx.media3.session.MediaButtonReceiver"
             android:exported="true">
@@ -409,10 +415,6 @@
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </receiver>
-
-        <!-- ═══════════════════════════════════════════════════════════════
-             App shortcuts
-             ═══════════════════════════════════════════════════════════════ -->
 
         <!-- ═══════════════════════════════════════════════════════════════
              WorkManager / DataStore
