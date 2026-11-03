@@ -240,7 +240,7 @@ private fun KeyButton(label: String, enabled: Boolean, onClick: () -> Unit) {
     }
 }
 
-private tailrec fun Context.findFragmentActivity(): FragmentActivity? = when (this) {
+internal tailrec fun Context.findFragmentActivity(): FragmentActivity? = when (this) {
     is FragmentActivity -> this
     is ContextWrapper -> baseContext.findFragmentActivity()
     else -> null

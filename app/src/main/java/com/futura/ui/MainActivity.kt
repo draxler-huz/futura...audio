@@ -65,6 +65,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,11 +74,20 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.futura.R
+import com.futura.ui.screens.AlarmEditorScreen
+import com.futura.ui.screens.AlarmListScreen
 import com.futura.ui.screens.LoadingScreen
+import com.futura.ui.screens.VaultSecurityScreen
+import com.futura.ui.screens.findFragmentActivity
+import com.futura.ui.viewmodel.AlarmEditorViewModel
+import com.futura.ui.viewmodel.AlarmListViewModel
 import com.futura.ui.screens.NowPlayingScreen
 import com.futura.ui.screens.WakeUpOverlayScreen
 import com.futura.ui.theme.FuturaTheme
@@ -98,12 +108,24 @@ import kotlinx.coroutines.flow.asStateFlow
  * The `route` strings are opaque to the OS and never appear on disk — they
  * exist only inside the NavController back stack.
  */
+/** Editor route. `alarmId` is optional: absent means a new alarm. */
+private const val ALARM_EDITOR_ROUTE = "alarm_editor?alarmId={alarmId}"
+
+private fun alarmEditorRoute(alarmId: String?): String =
+    if (alarmId == null) "alarm_editor" else "alarm_editor?alarmId=$alarmId"
+
 enum class MainRoute(val route: String) {
     /** Transient bootstrap screen shown while MainViewModel.isReady == false. */
     Loading("loading"),
 
     /** Phase 1 — full-screen alarm overlay (WakeUpOverlayScreen). */
     WakeUpOverlay("wakeup"),
+
+    /** Root screen: the alarm list, with entry to the editor and vault. */
+    AlarmList("alarms"),
+
+    /** Biometric and PIN gate for the vault. */
+    VaultSecurity("vault"),
 
     /** Phase 2 — Now Playing surface (NowPlayingScreen). */
     NowPlaying("now_playing"),
@@ -153,7 +175,7 @@ enum class MainRoute(val route: String) {
          * NavHost's start destination, which is why the loading placeholder
          * is never actually reached during ordinary use.
          */
-        val START = WakeUpOverlay
+        val START = AlarmList
 
         /**
          * Resolve an incoming Intent to a route, or null if the intent
@@ -302,6 +324,47 @@ private fun MainNavHost(
                         popUpTo(MainRoute.Loading.route) { inclusive = true }
                     }
                 }
+            )
+        }
+        composable(MainRoute.AlarmList.route) {
+            val vm: AlarmListViewModel = hiltViewModel()
+            val alarms by vm.alarms.collectAsStateWithLifecycle()
+            AlarmListScreen(
+                alarms = alarms,
+                onAdd = { navController.navigate(alarmEditorRoute(null)) },
+                onEdit = { navController.navigate(alarmEditorRoute(it.id)) },
+                onToggle = { spec, on -> vm.setEnabled(spec, on) },
+                onDelete = { vm.delete(it) },
+                onOpenVault = { navController.navigate(MainRoute.VaultSecurity.route) }
+            )
+        }
+        composable(
+            route = ALARM_EDITOR_ROUTE,
+            arguments = listOf(
+                navArgument(AlarmEditorViewModel.ARG_ALARM_ID) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) {
+            val vm: AlarmEditorViewModel = hiltViewModel()
+            val activity = LocalContext.current.findFragmentActivity()
+            AlarmEditorScreen(
+                initial = vm.initial,
+                isEditing = vm.original != null,
+                biometricAvailable = vm.biometricAvailable(),
+                requireAuth = { granted ->
+                    activity?.let { vm.authorize(it, onGranted = granted) }
+                },
+                onSave = { spec -> vm.save(spec, onSaved = { navController.popBackStack() }) },
+                onCancel = { navController.popBackStack() }
+            )
+        }
+        composable(MainRoute.VaultSecurity.route) {
+            VaultSecurityScreen(
+                onUnlocked = { navController.popBackStack() },
+                onCancel = { navController.popBackStack() }
             )
         }
         composable(MainRoute.WakeUpOverlay.route) {

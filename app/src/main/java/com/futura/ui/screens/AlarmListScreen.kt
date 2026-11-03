@@ -55,6 +55,7 @@ fun AlarmListScreen(
     onEdit: (AlarmSpec) -> Unit,
     onToggle: (AlarmSpec, Boolean) -> Unit,
     onDelete: (AlarmSpec) -> Unit,
+    onOpenVault: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var filter by remember { mutableStateOf(AlarmFilter.ALL) }
@@ -80,7 +81,7 @@ fun AlarmListScreen(
             .background(FuturaColors.OLEDBlack)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            TopBar(nextAlarm = nextAlarm)
+            TopBar(nextAlarm = nextAlarm, onOpenVault = onOpenVault)
 
             FilterRow(selected = filter, onSelect = { filter = it })
 
@@ -121,7 +122,7 @@ fun AlarmListScreen(
 // ── Pieces ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun TopBar(nextAlarm: AlarmSpec?) {
+private fun TopBar(nextAlarm: AlarmSpec?, onOpenVault: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -141,6 +142,13 @@ private fun TopBar(nextAlarm: AlarmSpec?) {
                 ?: "No alarms are set",
             color = FuturaColors.TextSecondary,
             fontSize = 13.sp
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = "Open vault",
+            color = FuturaColors.Amber,
+            fontSize = 13.sp,
+            modifier = Modifier.clickable(onClick = onOpenVault)
         )
     }
 }

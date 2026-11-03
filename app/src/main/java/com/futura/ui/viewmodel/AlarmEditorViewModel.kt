@@ -8,6 +8,7 @@ import com.futura.alarm.AlarmScheduler
 import com.futura.alarm.AlarmSpec
 import com.futura.alarm.AlarmStore
 import com.futura.alarm.BiometricWakeUpLock
+import androidx.fragment.app.FragmentActivity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.launch
@@ -41,10 +42,26 @@ class AlarmEditorViewModel @Inject constructor(
     fun biometricAvailable(): Boolean = biometricLock.canAuthenticate()
 
     /**
-     * Validates [draft] and saves it. Returns a message for the user when the
-     * draft is invalid, or null when the save has started.
+     * Runs the biometric gate before a shielded alarm is changed. [onGranted]
+     * fires only after a successful prompt.
      */
-    fun save(draft: AlarmSpec): String? {
+    fun authorize(activity: FragmentActivity, onGranted: () -> Unit) {
+        viewModelScope.launch {
+            biometricLock.prompt(
+                activity = activity,
+                onSuccess = { _ -> onGranted() },
+                onFailure = { }
+            )
+        }
+    }
+
+    /**
+     * Validates [draft] and saves it. Returns a message for the user when the
+     * draft is invalid. Otherwise returns null and calls [onSaved] once the
+     * store and scheduler have finished. The caller must not leave the screen
+     * before that, or the save is cancelled with the ViewModel.
+     */
+    fun save(draft: AlarmSpec, onSaved: () -> Unit): String? {
         if (draft.label.length > MAX_LABEL_LENGTH) {
             return "Label must be $MAX_LABEL_LENGTH characters or fewer."
         }
@@ -61,6 +78,7 @@ class AlarmEditorViewModel @Inject constructor(
             } else {
                 scheduler.cancel(draft.id)
             }
+            onSaved()
         }
         return null
     }
