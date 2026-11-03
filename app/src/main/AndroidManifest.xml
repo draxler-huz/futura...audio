@@ -52,6 +52,7 @@
     <!-- Exact alarm scheduling (Phase 1 – AlarmSchedulerImpl) -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <!-- Media library access (granular on API 33+, legacy fallback below) -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
