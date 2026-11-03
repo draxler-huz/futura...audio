@@ -213,3 +213,9 @@
 # avoids that pass. Obfuscation and optimisation still run. Remove once R8
 # is fixed or upgraded.
 -dontshrink
+
+# Tink (pulled in by androidx.security) references Google HTTP client classes
+# only in a key-download path this app never runs. Those classes are not
+# shipped, so R8 would fail on them. Suppress the missing-class error for them.
+-dontwarn com.google.api.client.**
+-dontwarn com.google.crypto.tink.**
