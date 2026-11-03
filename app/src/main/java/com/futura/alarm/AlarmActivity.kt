@@ -15,6 +15,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -48,6 +50,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.offset
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -351,11 +355,13 @@ class AlarmActivity : FragmentActivity() {
 
         fun completeDismiss() {
             if (biometricLocked) {
-                biometricLock.prompt(
-                    activity = this@AlarmActivity,
-                    onSuccess = { onDismissCompleted() },
-                    onFailure = { resetDrag() }
-                )
+                scope.launch {
+                    biometricLock.prompt(
+                        activity = this@AlarmActivity,
+                        onSuccess = { onDismissCompleted() },
+                        onFailure = { resetDrag() }
+                    )
+                }
             } else {
                 onDismissCompleted()
             }
@@ -424,28 +430,22 @@ class AlarmActivity : FragmentActivity() {
     // ── Helpers ────────────────────────────────────────────────────
 
     private fun Modifier.dismissTrackBorder(height: androidx.compose.ui.unit.Dp): Modifier =
-        this.then(
-            androidx.compose.foundation.border(
-                width = 1.dp,
-                color = FuturaColors.Cyan.copy(alpha = 0.4f),
-                shape = RoundedCornerShape(height / 2)
-            )
+        this.border(
+            width = 1.dp,
+            color = FuturaColors.Cyan.copy(alpha = 0.4f),
+            shape = RoundedCornerShape(height / 2)
         )
 
     private fun Modifier.offsetCompat(xPx: Float): Modifier =
-        this.then(
-            androidx.compose.foundation.layout.offset {
-                androidx.compose.ui.unit.IntOffset(
-                    x = xPx.toInt(),
-                    y = 0
-                )
-            }
-        )
+        this.offset {
+            androidx.compose.ui.unit.IntOffset(
+                x = xPx.toInt(),
+                y = 0
+            )
+        }
 
     private fun Modifier.onSizeChangedCompat(block: (Float) -> Unit): Modifier =
-        this.then(
-            androidx.compose.ui.layout.onSizeChanged { block(it.width.toFloat()) }
-        )
+        this.onSizeChanged { block(it.width.toFloat()) }
 
     companion object {
         private const val TAG = "AlarmActivity"
