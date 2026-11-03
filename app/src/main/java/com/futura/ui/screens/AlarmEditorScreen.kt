@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.futura.alarm.AlarmSpec
+import com.futura.alarm.VaultUnlockProof
 import com.futura.ui.theme.FuturaColors
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -61,24 +62,24 @@ fun AlarmEditorScreen(
     initial: AlarmSpec,
     isEditing: Boolean,
     biometricAvailable: Boolean,
-    requireAuth: (onGranted: () -> Unit) -> Unit,
-    onSave: (AlarmSpec) -> String?,
+    requireAuth: (onGranted: (VaultUnlockProof) -> Unit) -> Unit,
+    onSave: (AlarmSpec, VaultUnlockProof?, onResult: (String?) -> Unit) -> Unit,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var draft by remember(initial) { mutableStateOf(initial) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    fun commit() {
-        error = onSave(draft)
+    fun commit(proof: VaultUnlockProof?) {
+        onSave(draft, proof) { error = it }
     }
 
     fun onSaveClicked() {
-        // Editing a shielded alarm needs the owner to authenticate first.
+        // Editing a shielded alarm needs a fresh proof from the biometric gate.
         if (isEditing && initial.biometricLocked) {
-            requireAuth { commit() }
+            requireAuth { proof -> commit(proof) }
         } else {
-            commit()
+            commit(null)
         }
     }
 

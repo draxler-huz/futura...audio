@@ -81,6 +81,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.futura.R
+import com.futura.alarm.VaultUnlockProof
 import com.futura.ui.screens.AlarmEditorScreen
 import com.futura.ui.screens.AlarmListScreen
 import com.futura.ui.screens.LoadingScreen
@@ -329,12 +330,14 @@ private fun MainNavHost(
         composable(MainRoute.AlarmList.route) {
             val vm: AlarmListViewModel = hiltViewModel()
             val alarms by vm.alarms.collectAsStateWithLifecycle()
+            val activity = LocalContext.current.findFragmentActivity()
             AlarmListScreen(
                 alarms = alarms,
                 onAdd = { navController.navigate(alarmEditorRoute(null)) },
                 onEdit = { navController.navigate(alarmEditorRoute(it.id)) },
-                onToggle = { spec, on -> vm.setEnabled(spec, on) },
-                onDelete = { vm.delete(it) },
+                onToggle = { spec, on, proof -> vm.setEnabled(spec, on, proof) },
+                onDelete = { spec, proof -> vm.delete(spec, proof) },
+                requireAuth = { granted -> activity?.let { vm.authorize(it, granted) } },
                 onOpenVault = { navController.navigate(MainRoute.VaultSecurity.route) }
             )
         }
@@ -355,9 +358,14 @@ private fun MainNavHost(
                 isEditing = vm.original != null,
                 biometricAvailable = vm.biometricAvailable(),
                 requireAuth = { granted ->
-                    activity?.let { vm.authorize(it, onGranted = granted) }
+                    activity?.let { vm.authorize(it, granted) }
                 },
-                onSave = { spec -> vm.save(spec, onSaved = { navController.popBackStack() }) },
+                onSave = { spec, proof, result ->
+                    vm.save(spec, proof) { error ->
+                        result(error)
+                        if (error == null) navController.popBackStack()
+                    }
+                },
                 onCancel = { navController.popBackStack() }
             )
         }

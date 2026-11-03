@@ -1,11 +1,13 @@
 // app/src/main/java/com/futura/ui/viewmodel/AlarmListViewModel.kt
 package com.futura.ui.viewmodel
 
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.futura.alarm.AlarmScheduler
 import com.futura.alarm.AlarmSpec
 import com.futura.alarm.AlarmStore
+import com.futura.alarm.VaultUnlockProof
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
@@ -15,13 +17,14 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
- * Drives the alarm list. Reads [AlarmStore.specs] and keeps the OS
- * schedule in step with every change the user makes.
+ * Drives the alarm list. Every change goes through [AlarmStore] first, and
+ * the OS schedule follows only when the store accepts the change.
  */
 @HiltViewModel
 class AlarmListViewModel @Inject constructor(
     private val store: AlarmStore,
-    private val scheduler: AlarmScheduler
+    private val scheduler: AlarmScheduler,
+    private val shieldGate: ShieldGate
 ) : ViewModel() {
 
     /** Alarms sorted by time of day. */
@@ -29,10 +32,15 @@ class AlarmListViewModel @Inject constructor(
         .map { list -> list.sortedWith(compareBy({ it.hour }, { it.minute })) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Turns an alarm on or off and updates the OS schedule to match. */
-    fun setEnabled(spec: AlarmSpec, enabled: Boolean) {
+    /** Runs the biometric gate for a shielded change. */
+    fun authorize(activity: FragmentActivity, onGranted: (VaultUnlockProof) -> Unit) {
+        shieldGate.authorize(activity, viewModelScope, onGranted)
+    }
+
+    /** Turns an alarm on or off. [proof] is required for shielded alarms. */
+    fun setEnabled(spec: AlarmSpec, enabled: Boolean, proof: VaultUnlockProof?) {
         viewModelScope.launch {
-            store.setEnabled(spec.id, enabled)
+            if (!store.setEnabled(spec.id, enabled, proof)) return@launch
             if (enabled) {
                 scheduler.schedule(spec.copy(enabled = true))
             } else {
@@ -41,11 +49,11 @@ class AlarmListViewModel @Inject constructor(
         }
     }
 
-    /** Removes an alarm from the store and cancels its OS timer. */
-    fun delete(spec: AlarmSpec) {
+    /** Removes an alarm. [proof] is required for shielded alarms. */
+    fun delete(spec: AlarmSpec, proof: VaultUnlockProof?) {
         viewModelScope.launch {
+            if (!store.remove(spec.id, proof)) return@launch
             scheduler.cancel(spec.id)
-            store.remove(spec.id)
         }
     }
 }

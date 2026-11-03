@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.futura.alarm.AlarmSpec
+import com.futura.alarm.VaultUnlockProof
 import com.futura.ui.theme.FuturaColors
 
 /** Filter applied to the alarm list. */
@@ -53,8 +54,9 @@ fun AlarmListScreen(
     alarms: List<AlarmSpec>,
     onAdd: () -> Unit,
     onEdit: (AlarmSpec) -> Unit,
-    onToggle: (AlarmSpec, Boolean) -> Unit,
-    onDelete: (AlarmSpec) -> Unit,
+    onToggle: (AlarmSpec, Boolean, VaultUnlockProof?) -> Unit,
+    onDelete: (AlarmSpec, VaultUnlockProof?) -> Unit,
+    requireAuth: ((VaultUnlockProof) -> Unit) -> Unit,
     onOpenVault: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -99,11 +101,16 @@ fun AlarmListScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(visible, key = { it.id }) { spec ->
+                        // Shielded alarms need a fresh proof for any change.
                         AlarmCard(
                             spec = spec,
                             onClick = { onEdit(spec) },
-                            onToggle = { onToggle(spec, it) },
-                            onDelete = { onDelete(spec) }
+                            onToggle = { on ->
+                                gate(spec, requireAuth) { proof -> onToggle(spec, on, proof) }
+                            },
+                            onDelete = {
+                                gate(spec, requireAuth) { proof -> onDelete(spec, proof) }
+                            }
                         )
                     }
                 }
@@ -117,6 +124,15 @@ fun AlarmListScreen(
                 .padding(24.dp)
         )
     }
+}
+
+/** Runs [block] directly, or after the biometric gate for a shielded alarm. */
+private fun gate(
+    spec: AlarmSpec,
+    requireAuth: ((VaultUnlockProof) -> Unit) -> Unit,
+    block: (VaultUnlockProof?) -> Unit
+) {
+    if (spec.biometricLocked) requireAuth(block) else block(null)
 }
 
 // ── Pieces ──────────────────────────────────────────────────────────────

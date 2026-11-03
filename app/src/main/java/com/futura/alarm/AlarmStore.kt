@@ -83,33 +83,53 @@ class AlarmStore @Inject constructor(
         }
     }
 
-    suspend fun upsert(spec: AlarmSpec) {
+    /**
+     * A shielded alarm may only be changed or removed with a fresh proof.
+     * The proof is spent here, so it cannot be reused. Returns false when
+     * the change is refused.
+     */
+    private fun authorised(existing: AlarmSpec?, proof: VaultUnlockProof?): Boolean {
+        if (existing?.biometricLocked != true) return true
+        return proof != null && VaultUnlockLedger.spend(proof)
+    }
+
+    /** Creates or replaces an alarm. False if a shielded alarm was refused. */
+    suspend fun upsert(spec: AlarmSpec, proof: VaultUnlockProof? = null): Boolean =
         writeMutex.withLock {
             val current = _specs.value.toMutableList()
             val idx = current.indexOfFirst { it.id == spec.id }
+            if (!authorised(current.getOrNull(idx), proof)) return@withLock false
             if (idx >= 0) current[idx] = spec else current.add(spec)
             _specs.value = current
             persistLocked(current)
+            true
         }
-    }
 
-    suspend fun remove(specId: String) {
+    /** Removes an alarm. False if a shielded alarm was refused. */
+    suspend fun remove(specId: String, proof: VaultUnlockProof? = null): Boolean =
         writeMutex.withLock {
+            if (!authorised(_specs.value.firstOrNull { it.id == specId }, proof)) {
+                return@withLock false
+            }
             val filtered = _specs.value.filterNot { it.id == specId }
             _specs.value = filtered
             persistLocked(filtered)
+            true
         }
-    }
 
-    suspend fun setEnabled(specId: String, enabled: Boolean) {
+    /** Turns an alarm on or off. False if a shielded alarm was refused. */
+    suspend fun setEnabled(specId: String, enabled: Boolean, proof: VaultUnlockProof? = null): Boolean =
         writeMutex.withLock {
+            if (!authorised(_specs.value.firstOrNull { it.id == specId }, proof)) {
+                return@withLock false
+            }
             val current = _specs.value.map {
                 if (it.id == specId) it.copy(enabled = enabled) else it
             }
             _specs.value = current
             persistLocked(current)
+            true
         }
-    }
 
     fun get(specId: String): AlarmSpec? = _specs.value.firstOrNull { it.id == specId }
 

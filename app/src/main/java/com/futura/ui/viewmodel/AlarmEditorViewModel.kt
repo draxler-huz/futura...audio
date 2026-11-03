@@ -1,6 +1,7 @@
 // app/src/main/java/com/futura/ui/viewmodel/AlarmEditorViewModel.kt
 package com.futura.ui.viewmodel
 
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -8,23 +9,22 @@ import com.futura.alarm.AlarmScheduler
 import com.futura.alarm.AlarmSpec
 import com.futura.alarm.AlarmStore
 import com.futura.alarm.BiometricWakeUpLock
-import androidx.fragment.app.FragmentActivity
+import com.futura.alarm.VaultUnlockProof
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.launch
 
 /**
- * Creates and edits one alarm. The screen holds the draft; this class
- * validates it and persists it through [AlarmStore] and [AlarmScheduler].
- *
- * Navigation passes `alarmId` in the saved state. When it is absent the
- * editor starts a new alarm.
+ * Creates and edits one alarm. The screen holds the draft. This class
+ * validates it, then saves through [AlarmStore] with a proof when the
+ * existing alarm is shielded.
  */
 @HiltViewModel
 class AlarmEditorViewModel @Inject constructor(
     private val store: AlarmStore,
     private val scheduler: AlarmScheduler,
     private val biometricLock: BiometricWakeUpLock,
+    private val shieldGate: ShieldGate,
     savedState: SavedStateHandle
 ) : ViewModel() {
 
@@ -41,46 +41,45 @@ class AlarmEditorViewModel @Inject constructor(
     /** Whether this device can satisfy a biometric shield. */
     fun biometricAvailable(): Boolean = biometricLock.canAuthenticate()
 
-    /**
-     * Runs the biometric gate before a shielded alarm is changed. [onGranted]
-     * fires only after a successful prompt.
-     */
-    fun authorize(activity: FragmentActivity, onGranted: () -> Unit) {
-        viewModelScope.launch {
-            biometricLock.prompt(
-                activity = activity,
-                onSuccess = { _ -> onGranted() },
-                onFailure = { }
-            )
-        }
+    /** Runs the biometric gate before a shielded alarm is changed. */
+    fun authorize(activity: FragmentActivity, onGranted: (VaultUnlockProof) -> Unit) {
+        shieldGate.authorize(activity, viewModelScope, onGranted)
     }
 
     /**
-     * Validates [draft] and saves it. Returns a message for the user when the
-     * draft is invalid. Otherwise returns null and calls [onSaved] once the
-     * store and scheduler have finished. The caller must not leave the screen
-     * before that, or the save is cancelled with the ViewModel.
+     * Validates and saves [draft]. [onResult] receives an error message, or
+     * null once the store and scheduler have accepted the change.
      */
-    fun save(draft: AlarmSpec, onSaved: () -> Unit): String? {
+    fun save(draft: AlarmSpec, proof: VaultUnlockProof?, onResult: (String?) -> Unit) {
         if (draft.label.length > MAX_LABEL_LENGTH) {
-            return "Label must be $MAX_LABEL_LENGTH characters or fewer."
+            onResult("Label must be $MAX_LABEL_LENGTH characters or fewer.")
+            return
         }
         if (draft.rampDurationSeconds !in 0..MAX_RAMP_SECONDS) {
-            return "Ramp must be between 0 and 30 minutes."
+            onResult("Ramp must be between 0 and 30 minutes.")
+            return
         }
         if (draft.biometricLocked && !biometricAvailable()) {
-            return "This device has no biometric or screen lock set up, so the shield can't be turned on."
+            onResult("This device has no biometric or screen lock set up, so the shield can't be turned on.")
+            return
         }
         viewModelScope.launch {
-            store.upsert(draft)
+            val shielded = store.get(draft.id)?.biometricLocked == true
+            if (shielded && proof == null) {
+                onResult("Authenticate to change this alarm.")
+                return@launch
+            }
+            if (!store.upsert(draft, proof)) {
+                onResult("Authentication expired. Try again.")
+                return@launch
+            }
             if (draft.enabled) {
                 scheduler.schedule(draft)
             } else {
                 scheduler.cancel(draft.id)
             }
-            onSaved()
+            onResult(null)
         }
-        return null
     }
 
     companion object {
