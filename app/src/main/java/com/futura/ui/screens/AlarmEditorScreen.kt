@@ -38,6 +38,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.futura.alarm.AlarmSpec
+import com.futura.alarm.ChallengeMode
+import com.futura.ui.viewmodel.AlarmEditorViewModel
 import com.futura.alarm.VaultUnlockProof
 import com.futura.ui.theme.FuturaColors
 import kotlin.math.abs
@@ -69,6 +71,8 @@ fun AlarmEditorScreen(
 ) {
     var draft by remember(initial) { mutableStateOf(initial) }
     var error by remember { mutableStateOf<String?>(null) }
+    var dateInput by remember { mutableStateOf("") }
+    var dateError by remember { mutableStateOf<String?>(null) }
 
     fun commit(proof: VaultUnlockProof?) {
         onSave(draft, proof) { error = it }
@@ -159,6 +163,115 @@ fun AlarmEditorScreen(
                             onClick = { draft = draft.copy(rampProfile = curve.exponent) },
                             label = { Text(curve.label, fontSize = 12.sp) }
                         )
+                    }
+                }
+            }
+
+            Section(title = "CHALLENGE TO STOP") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ChallengeMode.values().forEach { mode ->
+                        FilterChip(
+                            selected = draft.challengeMode == mode,
+                            onClick = { draft = draft.copy(challengeMode = mode) },
+                            label = { Text(challengeLabel(mode), fontSize = 12.sp) }
+                        )
+                    }
+                }
+            }
+
+            Section(title = "FAIL-SAFE") {
+                ToggleRow(
+                    label = "Sound a backup siren if dismissed incorrectly",
+                    checked = draft.failSafe,
+                    enabled = true,
+                    onChange = { draft = draft.copy(failSafe = it) }
+                )
+            }
+
+            Section(title = "VISUAL SYNC") {
+                ToggleRow(
+                    label = "Screen flash",
+                    checked = draft.visualSync.screenFlash,
+                    enabled = true,
+                    onChange = { draft = draft.copy(visualSync = draft.visualSync.copy(screenFlash = it)) }
+                )
+                ToggleRow(
+                    label = "Smart bulb sync",
+                    checked = draft.visualSync.smartBulbSync,
+                    enabled = true,
+                    onChange = { draft = draft.copy(visualSync = draft.visualSync.copy(smartBulbSync = it)) }
+                )
+                ToggleRow(
+                    label = "Flashlight pulses",
+                    checked = draft.visualSync.flashlight,
+                    enabled = true,
+                    onChange = { draft = draft.copy(visualSync = draft.visualSync.copy(flashlight = it)) }
+                )
+            }
+
+            Section(title = "SOUND") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MacroChip(
+                        label = "Alarm tone",
+                        selected = draft.soundUri == AlarmEditorViewModel.DEFAULT_SOUND_URI
+                    ) { draft = draft.copy(soundUri = AlarmEditorViewModel.DEFAULT_SOUND_URI) }
+                    MacroChip(
+                        label = "Ringtone",
+                        selected = draft.soundUri == RINGTONE_URI
+                    ) { draft = draft.copy(soundUri = RINGTONE_URI) }
+                }
+            }
+
+            Section(title = "SKIP DATES") {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = dateInput,
+                        onValueChange = {
+                            dateInput = it.take(10)
+                            dateError = null
+                        },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("YYYY-MM-DD", color = FuturaColors.TextTertiary) }
+                    )
+                    TextButton(onClick = {
+                        val candidate = dateInput.trim()
+                        when {
+                            !isValidIsoDate(candidate) -> dateError = "Use a real date in YYYY-MM-DD form."
+                            candidate in draft.calendarExceptions -> dateError = "That date is already skipped."
+                            else -> {
+                                draft = draft.copy(calendarExceptions = (draft.calendarExceptions + candidate).sorted())
+                                dateInput = ""
+                                dateError = null
+                            }
+                        }
+                    }) {
+                        Text("Add", color = FuturaColors.Cyan)
+                    }
+                }
+                dateError?.let {
+                    Text(text = it, color = FuturaColors.Error, fontSize = 12.sp)
+                }
+                draft.calendarExceptions.forEach { date ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = date,
+                            color = FuturaColors.TextPrimary,
+                            fontSize = 14.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = {
+                            draft = draft.copy(calendarExceptions = draft.calendarExceptions - date)
+                        }) {
+                            Text("Remove", color = FuturaColors.TextTertiary)
+                        }
                     }
                 }
             }
@@ -401,4 +514,17 @@ private fun Stepper(label: String, value: Int, range: IntRange, onChange: (Int) 
             Text("+", color = FuturaColors.Cyan, fontSize = 18.sp)
         }
     }
+}
+
+
+private const val RINGTONE_URI = "content://settings/system/ringtone"
+
+/** A date in YYYY-MM-DD form that parses as a real calendar date. */
+private fun isValidIsoDate(text: String): Boolean =
+    text.length == 10 && runCatching { java.time.LocalDate.parse(text) }.isSuccess
+
+private fun challengeLabel(mode: ChallengeMode): String = when (mode) {
+    ChallengeMode.NONE -> "None"
+    ChallengeMode.STRICT_BIOMETRIC -> "Strict biometric"
+    ChallengeMode.BIOMETRIC_PLUS_MATH -> "Biometric + math"
 }
