@@ -196,6 +196,14 @@ class BiometricWakeUpLock @Inject internal constructor(
     }
 
     /** Cancel any in-flight prompt. Safe to call unconditionally. */
+    /**
+     * True when this device can run the prompt with the authenticators the
+     * vault uses. Alarms that are biometric-shielded are refused without it.
+     */
+    fun canAuthenticate(): Boolean =
+        BiometricManager.from(context).canAuthenticate(allowedAuthenticators()) ==
+            BiometricManager.BIOMETRIC_SUCCESS
+
     suspend fun cancel() = mutex.withLock {
         val prompt = activePrompt
         if (prompt != null) {
