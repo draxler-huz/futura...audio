@@ -1,0 +1,23 @@
+name: AI Issue Developer
+on:
+  issues:
+    types: [opened]
+jobs:
+  develop:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Required to checkout code, create branches, and push commits
+      pull-requests: write # Required to open the PR
+      issues: write # Required to leave comments linking back to the PR
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run AI Developer Agent
+        uses: zakerytclarke/infinite-monkey-agent@main
+        with:
+          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+          model: 'google/gemini-2.5-pro'
+          run_tests: 'true'
+          max_steps: '15' # Limit development loops to control execution time
