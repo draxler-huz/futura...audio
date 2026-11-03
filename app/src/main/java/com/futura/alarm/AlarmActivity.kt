@@ -1,19 +1,21 @@
 // app/src/main/java/com/futura/alarm/AlarmActivity.kt
 package com.futura.alarm
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
-import android.view.WindowManager
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -24,19 +26,21 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -44,61 +48,24 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import com.futura.ui.theme.FuturaColors
 import com.futura.ui.theme.FuturaTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
-import kotlin.math.abs
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
-/**
- * Full-screen alarm landing page.
- *
- * Launched by [DynamicNotificationLauncher]'s full-screen intent (with
- * the `futura://alarm/<specId>` deep link) or by [MainActivity] when the
- * user taps an alarm notification. Extends [FragmentActivity] because
- * [BiometricWakeUpLock] (group 5) uses `androidx.biometric:1.2.0-alpha05`
- * which requires a `FragmentActivity` on API 26–29 (on API 30+ a plain
- * `ComponentActivity` would suffice; `FragmentActivity` extends it, so
- * this single superclass works across the whole minSdk 26+ range).
- *
- * Responsibilities:
- *   • Window configuration (show when locked, turn screen on, keep
- *     screen on, immersive navigation).
- *   • Volume button swallowing while stealth mode is engaged.
- *   • Swipe-to-dismiss gate (see [DismissSurface] below).
- *   • Optional biometric confirmation before dismissing — sequenced
- *     after the swipe threshold is crossed, per Option A design.
- *   • Automatic `finish()` when the alarm is dismissed by any other
- *     path (notification action, Wear remote, watchdog timeout).
- *
- * The alarm UI is deliberately minimal — this screen is what the user
- * sees in the first half-second of waking up; the Wake-Up Overlay
- * (delivered) is the *subsequent* screen shown after a snooze action.
- * The overlay owns the "SNOOZE (START ROULETTE QUEUE)" call; this
- * activity owns the "prove you're awake and dismiss" call.
- */
 @AndroidEntryPoint
 class AlarmActivity : FragmentActivity() {
 
@@ -110,7 +77,7 @@ class AlarmActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        configureWindow()
+        AlarmWindowHelper.applyWindowFlags(window)
         handleIntent(intent)
 
         if (activeSpecId == null) {
@@ -119,26 +86,37 @@ class AlarmActivity : FragmentActivity() {
             return
         }
 
-        // Engage stealth mode for the lifetime of this activity.
+        // Prompt for SYSTEM_ALERT_WINDOW if missing. Required for the
+        // alarm to appear over another app when the screen is unlocked.
+        if (!OverlayPermissionHelper.canDrawOverlays(this) && !isFinishing) {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Alarm won't appear over other apps")
+                .setMessage(
+                    "To make the alarm appear over whatever is on your " +
+                        "screen, grant the \"Display over other apps\" " +
+                        "permission. Without it, the alarm appears on the " +
+                        "lock screen or as a notification."
+                )
+                .setPositiveButton("Grant") { _, _ ->
+                    OverlayPermissionHelper.requestOverlayPermission(this)
+                }
+                .setNegativeButton("Not now", null)
+                .show()
+        }
+
         lifecycleScope.launch {
             try { stealthModePolicy.engage() } catch (e: Exception) {
                 Log.w(TAG, "Failed to engage stealth mode", e)
             }
         }
 
-        // Auto-finish when the alarm is dismissed through any other path
-        // (notification action, Wear, watchdog). This prevents the
-        // biometric prompt from floating over a dismissed alarm.
         lifecycleScope.launch {
             try {
-                // Finish only after a session was seen and then ended. A null
-                // session on launch is a startup race, not a dismissal.
-                var sawSession = false
                 coordinator.session.collect { session ->
-                    if (session != null) sawSession = true
-                    val ended = (sawSession && session == null) ||
-                        session?.phase == AlarmCoordinator.Phase.DISMISSED
-                    if (ended && !isFinishing) finish()
+                    if (session == null ||
+                        session.phase == AlarmCoordinator.Phase.DISMISSED) {
+                        if (!isFinishing) finish()
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Session collector failed", e)
@@ -159,9 +137,6 @@ class AlarmActivity : FragmentActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        // Swallow volume keys while stealth mode is engaged. The
-        // StealthModePolicy delivers the policy decision; this method
-        // owns the interception mechanics.
         if (event.action == KeyEvent.ACTION_DOWN &&
             stealthModePolicy.shouldSwallow(event.keyCode)) {
             return true
@@ -170,60 +145,13 @@ class AlarmActivity : FragmentActivity() {
     }
 
     override fun onDestroy() {
-        // lifecycleScope is cancelled after onDestroy returns, so a disengage
-        // launched on it could be dropped. Use an independent scope.
-        CoroutineScope(Dispatchers.Default).launch {
+        val scope = lifecycleScope
+        scope.launch {
             try { stealthModePolicy.disengage() } catch (_: Exception) {}
         }
         super.onDestroy()
     }
 
-    // ── Internals ──────────────────────────────────────────────────
-
-    private fun configureWindow() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                setShowWhenLocked(true)
-                setTurnScreenOn(true)
-            } else {
-                @Suppress("DEPRECATION")
-                window.addFlags(
-                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
-                )
-            }
-            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-            WindowInsetsControllerCompat(window, window.decorView).apply {
-                hide(WindowInsetsCompat.Type.navigationBars())
-                systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "configureWindow failed", e)
-        }
-    }
-   // Inside AlarmActivity.onCreate, after handleIntent(intent) and the
-// activeSpecId null-check:
-
-// If the overlay permission is missing, this is the first time the
-// user has seen the alarm fire while unlocked. Prompt them with a
-// single-line rationale before opening Settings. After they return,
-// the next alarm fire will use the overlay path.
-if (!OverlayPermissionHelper.canDrawOverlays(this) && !isFinishing) {
-    android.app.AlertDialog.Builder(this)
-        .setTitle("Alarm won't appear over other apps")
-        .setMessage(
-            "To make the alarm appear over whatever is on your screen, " +
-                "grant \"Display over other apps\" permission. " +
-                "Without it, the alarm appears only on the lock screen " +
-                "or as a notification."
-        )
-        .setPositiveButton("Grant") { _, _ ->
-            OverlayPermissionHelper.requestOverlayPermission(this)
-        }
-        .setNegativeButton("Not now", null)
-        .show()
-}
     private fun handleIntent(intent: Intent?) {
         intent ?: return
         val specId = intent.data?.lastPathSegment
@@ -233,23 +161,16 @@ if (!OverlayPermissionHelper.canDrawOverlays(this) && !isFinishing) {
         }
     }
 
-    // ── Back button ────────────────────────────────────────────────
-
-    // Registered in onCreate after super; intercepted so back does not
-    // dismiss the alarm. The callback returns true (consumes) while the
-    // alarm is active — the user must dismiss through the swipe gate.
-
     override fun onPostCreate(savedInstanceState: Bundle?) {
         super.onPostCreate(savedInstanceState)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 Log.i(TAG, "Back press ignored while alarm is active")
-                // Deliberate no-op.
             }
         })
     }
 
-    // ── Compose UI ─────────────────────────────────────────────────
+    // ── Compose ────────────────────────────────────────────────────
 
     @Composable
     private fun AlarmScreen(specId: String) {
@@ -257,8 +178,6 @@ if (!OverlayPermissionHelper.canDrawOverlays(this) && !isFinishing) {
         val spec = session?.spec
         val phase = session?.phase
 
-        // Any terminal phase → no interactive UI (the activity is
-        // about to finish via the session collector).
         if (phase == null || phase == AlarmCoordinator.Phase.DISMISSED) {
             Box(
                 modifier = Modifier
@@ -281,7 +200,7 @@ if (!OverlayPermissionHelper.canDrawOverlays(this) && !isFinishing) {
             ) {
                 Spacer(Modifier.height(48.dp))
                 AlarmHeadline(spec = spec)
-                Spacer(Modifier.height(32.dp))
+                Spacer(Modifier.height(40.dp))
                 DismissSurface(
                     specId = specId,
                     biometricLocked = spec?.biometricLocked == true,
@@ -323,22 +242,6 @@ if (!OverlayPermissionHelper.canDrawOverlays(this) && !isFinishing) {
         )
     }
 
-    /**
-     * The swipe-to-dismiss surface.
-     *
-     * Gesture: continuous horizontal drag. The visual handle follows the
-     * finger; releasing before the threshold spring-backs to zero;
-     * releasing after the threshold either dismisses directly (if the
-     * alarm is not biometric-locked) or opens the biometric prompt (if
-     * it is). Biometric success dismisses; biometric failure or cancel
-     * spring-backs to zero — the alarm continues.
-     *
-     * Threshold: 72% of the available track width. Higher than the 85%
-     * used by the Wake-Up Overlay's "DISMISS ALARM & LOCK DECK" track
-     * because this is the primary dismissal gesture on the alarm screen
-     * itself — it must be *slightly harder* to prevent sleep-swipes, not
-     * easier.
-     */
     @Composable
     private fun DismissSurface(
         specId: String,
@@ -349,10 +252,8 @@ if (!OverlayPermissionHelper.canDrawOverlays(this) && !isFinishing) {
         val scope = rememberCoroutineScope()
 
         var trackWidthPx by remember { mutableStateOf(0f) }
-        // Plain state, written synchronously from the drag callback. A
-        // coroutine-driven offset can lag behind the finger, which makes the
-        // release decision on a stale value.
-        var offsetPx by remember { mutableFloatStateOf(0f) }
+        var confirmState by remember { mutableStateOf(false) }
+        val dragOffset = remember { Animatable(0f) }
 
         val handleSizeDp = 72.dp
         val handleSizePx = with(density) { handleSizeDp.toPx() }
@@ -362,119 +263,191 @@ if (!OverlayPermissionHelper.canDrawOverlays(this) && !isFinishing) {
             .coerceAtLeast(0f)
         val thresholdPx = maxOffsetPx * DISMISS_THRESHOLD_FRACTION
 
-        fun resetDrag() {
+        fun animateTo(target: Float) {
             scope.launch {
-                Animatable(offsetPx).animateTo(
-                    targetValue = 0f,
+                dragOffset.animateTo(
+                    targetValue = target,
                     animationSpec = spring(
                         stiffness = Spring.StiffnessMediumLow,
                         dampingRatio = Spring.DampingRatioMediumBouncy
                     )
-                ) { offsetPx = value }
+                )
             }
         }
 
-        fun completeDismiss() {
+        fun snapTo(target: Float) {
+            scope.launch { dragOffset.snapTo(target) }
+        }
+
+        fun enterConfirm() {
+            confirmState = true
+            snapTo(maxOffsetPx)
+        }
+
+        fun cancelConfirm() {
+            confirmState = false
+            animateTo(0f)
+        }
+
+        fun doDismiss() {
             if (biometricLocked) {
-                scope.launch {
-                    biometricLock.prompt(
-                        activity = this@AlarmActivity,
-                        onSuccess = { onDismissCompleted() },
-                        onFailure = { resetDrag() }
-                    )
-                }
+                biometricLock.prompt(
+                    activity = this@AlarmActivity,
+                    onSuccess = { onDismissCompleted() },
+                    onFailure = { cancelConfirm() }
+                )
             } else {
                 onDismissCompleted()
             }
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(trackHeightDp)
-                .clip(RoundedCornerShape(trackHeightDp / 2))
-                .background(FuturaColors.SurfaceBase.copy(alpha = 0.55f))
-                .dismissTrackBorder(trackHeightDp)
-                // Keyed so the gesture closure is rebuilt when the track size
-                // or lock mode changes. Without the keys it kept the 0px values
-                // from the first frame, so the threshold was never reached.
-                .pointerInput(trackWidthPx, biometricLocked) {
-                    detectHorizontalDragGestures(
-                        onDragEnd = {
-                            if (thresholdPx > 0f && offsetPx >= thresholdPx) {
-                                completeDismiss()
-                            } else {
-                                resetDrag()
-                            }
-                        },
-                        onDragCancel = { resetDrag() }
-                    ) { change, dragAmount ->
-                        change.consume()
-                        offsetPx = (offsetPx + dragAmount).coerceIn(0f, maxOffsetPx)
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            AnimatedVisibility(
+                visible = confirmState,
+                enter = fadeIn(animationSpec = tween(180)),
+                exit = fadeOut(animationSpec = tween(180))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Button(
+                        onClick = { doDismiss() },
+                        modifier = Modifier
+                            .widthIn(min = 200.dp)
+                            .height(56.dp),
+                        shape = RoundedCornerShape(28.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = FuturaColors.Emerald,
+                            contentColor = FuturaColors.OLEDBlack
+                        )
+                    ) {
+                        Text(
+                            text = if (biometricLocked) "AUTHENTICATE TO DISMISS"
+                                   else "DISMISS",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            letterSpacing = 1.5.sp
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = { cancelConfirm() }) {
+                        Text(
+                            text = "Cancel",
+                            color = FuturaColors.TextTertiary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            fontFamily = FontFamily.SansSerif,
+                            letterSpacing = 0.5.sp
+                        )
                     }
                 }
-                .onSizeChangedCompat { trackWidthPx = it }
-        ) {
-            // Centred label, which fades as the handle advances.
-            val progress = if (maxOffsetPx > 0f) {
-                (offsetPx / maxOffsetPx).coerceIn(0f, 1f)
-            } else 0f
-            Text(
-                text = "SWIPE TO DISMISS",
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(horizontal = 24.dp),
-                color = FuturaColors.Cyan.copy(
-                    alpha = (0.85f - progress * 0.85f).coerceIn(0f, 0.85f)
-                ),
-                fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 2.sp,
-                maxLines = 1
-            )
+            }
 
-            // Draggable handle.
             Box(
                 modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .padding(start = 6.dp, top = 6.dp, bottom = 6.dp)
-                    .offsetCompat(xPx = offsetPx)
-                    .size(handleSizeDp)
-                    .clip(RoundedCornerShape(handleSizeDp / 2))
-                    .background(FuturaColors.Cyan)
-                    .dismissTrackBorder(handleSizeDp)
-            )
+                    .fillMaxWidth()
+                    .height(trackHeightDp)
+                    .clip(RoundedCornerShape(trackHeightDp / 2))
+                    .background(FuturaColors.SurfaceBase.copy(alpha = 0.55f))
+                    .border(
+                        width = 1.dp,
+                        color = FuturaColors.Cyan.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(trackHeightDp / 2)
+                    )
+                    .onSizeChanged { trackWidthPx = it.width.toFloat() }
+                    .then(
+                        if (!confirmState) {
+                            Modifier.pointerInput(Unit) {
+                                detectHorizontalDragGestures(
+                                    onDragEnd = {
+                                        if (thresholdPx > 0f &&
+                                            dragOffset.value >= thresholdPx) {
+                                            enterConfirm()
+                                        } else {
+                                            animateTo(0f)
+                                        }
+                                    },
+                                    onDragCancel = { animateTo(0f) }
+                                ) { change, dragAmount ->
+                                    change.consume()
+                                    val newOffset =
+                                        (dragOffset.value + dragAmount)
+                                            .coerceIn(0f, maxOffsetPx)
+                                    snapTo(newOffset)
+                                }
+                            }
+                        } else Modifier
+                    )
+            ) {
+                val progress =
+                    if (maxOffsetPx > 0f)
+                        (dragOffset.value / maxOffsetPx).coerceIn(0f, 1f)
+                    else 0f
+                Text(
+                    text = if (confirmState) "READY" else "SWIPE TO DISMISS",
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(horizontal = 100.dp),
+                    color = if (confirmState)
+                        FuturaColors.Cyan.copy(alpha = 0.5f)
+                    else
+                        FuturaColors.Cyan.copy(
+                            alpha = (0.85f - progress * 0.85f).coerceIn(0f, 0.85f)
+                        ),
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 2.sp,
+                    maxLines = 1,
+                    textAlign = TextAlign.Center
+                )
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(start = 6.dp, top = 6.dp, bottom = 6.dp)
+                        .offset {
+                            IntOffset(x = dragOffset.value.roundToInt(), y = 0)
+                        }
+                        .size(handleSizeDp)
+                        .clip(CircleShape)
+                        .background(
+                            if (confirmState) FuturaColors.Emerald
+                            else FuturaColors.Cyan
+                        )
+                        .border(
+                            width = 2.dp,
+                            color = if (confirmState)
+                                FuturaColors.Emerald.copy(alpha = 0.6f)
+                            else
+                                FuturaColors.Cyan.copy(alpha = 0.6f),
+                            shape = CircleShape
+                        )
+                )
+            }
         }
     }
-
-    // ── Helpers ────────────────────────────────────────────────────
-
-    private fun Modifier.dismissTrackBorder(height: androidx.compose.ui.unit.Dp): Modifier =
-        this.border(
-            width = 1.dp,
-            color = FuturaColors.Cyan.copy(alpha = 0.4f),
-            shape = RoundedCornerShape(height / 2)
-        )
-
-    private fun Modifier.offsetCompat(xPx: Float): Modifier =
-        this.graphicsLayer { translationX = xPx }
-
-    private fun Modifier.onSizeChangedCompat(block: (Float) -> Unit): Modifier =
-        this.onSizeChanged { block(it.width.toFloat()) }
 
     companion object {
         private const val TAG = "AlarmActivity"
         private const val EXTRA_SPEC_ID = "com.futura.alarm.EXTRA_SPEC_ID"
         private const val DISMISS_THRESHOLD_FRACTION = 0.72f
 
-        /** Construct an intent to launch this activity for [specId]. */
         fun intent(context: Context, specId: String): Intent =
             Intent(Intent.ACTION_VIEW).apply {
                 setClassName(context, AlarmActivity::class.java.name)
                 data = android.net.Uri.parse("futura://alarm/$specId")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
-                         Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP
+                )
             }
     }
 }
