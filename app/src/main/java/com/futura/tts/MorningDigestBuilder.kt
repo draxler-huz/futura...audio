@@ -80,9 +80,12 @@ class MorningDigestBuilder @Inject constructor() {
                 } else {
                     "You have $count events today"
                 }
-                val joined = inputs.calendarEvents
-                    .map { it.trim().removeSuffix(".") }
-                    .joinToString(separator = ", ", lastSeparator = ", and ")
+                val names = inputs.calendarEvents.map { it.trim().removeSuffix(".") }
+                val joined = if (names.size == 1) {
+                    names[0]
+                } else {
+                    names.dropLast(1).joinToString(separator = ", ") + ", and " + names.last()
+                }
                 parts.add("$header: $joined.")
             }
 
