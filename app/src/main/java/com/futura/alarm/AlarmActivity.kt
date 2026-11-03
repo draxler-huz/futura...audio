@@ -49,8 +49,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.offset
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
@@ -437,12 +437,7 @@ class AlarmActivity : FragmentActivity() {
         )
 
     private fun Modifier.offsetCompat(xPx: Float): Modifier =
-        this.offset {
-            androidx.compose.ui.unit.IntOffset(
-                x = xPx.toInt(),
-                y = 0
-            )
-        }
+        this.graphicsLayer { translationX = xPx }
 
     private fun Modifier.onSizeChangedCompat(block: (Float) -> Unit): Modifier =
         this.onSizeChanged { block(it.width.toFloat()) }
