@@ -1,3 +1,4 @@
+# .github/workflows/android-build.yml
 name: Android release APK
 
 on:
@@ -41,11 +42,23 @@ jobs:
             echo "::error::ANDROID_KEYSTORE_BASE64 secret is not set"
             exit 1
           fi
-          # Written to app/ because app/build.gradle.kts resolves storeFile
-          # relative to the app module. Both paths are git-ignored.
-          echo "$KEYSTORE_BASE64" | base64 --decode > app/release.keystore
+          # Filename MUST match what app/build.gradle.kts expects via
+          # keystore.properties (storeFile=keystore.jks). Both paths are
+          # git-ignored.
+          echo "$KEYSTORE_BASE64" | base64 -d > app/keystore.jks
+
+          # Sanity-check: a valid JKS or PKCS12 file is > 100 bytes and
+          # starts with the JKS magic (\xFE\xED\xFE\xED) or the PKCS12
+          # ASN.1 SEQUENCE header (\x30\x82). Catches a bad secret early
+          # with a clear error instead of a cryptic signing failure.
+          SIZE=$(stat -c%s app/keystore.jks 2>/dev/null || stat -f%z app/keystore.jks)
+          if [ "$SIZE" -lt 100 ]; then
+            echo "::error::Decoded keystore is only ${SIZE} bytes — ANDROID_KEYSTORE_BASE64 is not valid Base64"
+            exit 1
+          fi
+
           {
-            echo "storeFile=release.keystore"
+            echo "storeFile=keystore.jks"
             echo "storePassword=$KEYSTORE_PASSWORD"
             echo "keyAlias=$KEY_ALIAS"
             echo "keyPassword=$KEY_PASSWORD"
@@ -66,4 +79,4 @@ jobs:
 
       - name: Remove local signing files
         if: always()
-        run: rm -f app/release.keystore app/keystore.properties
+        run: rm -f app/keystore.jks app/keystore.properties
