@@ -3,7 +3,6 @@ package com.futura.alarm
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
 import android.graphics.Color
 import android.util.Log
@@ -26,21 +25,22 @@ class DynamicNotificationLauncher @Inject constructor(
     fun show(spec: AlarmSpec): Boolean = try {
         ensureChannel()
 
-        // ── Overlay path: the real "appear over everything" mechanism ──
-        // When SYSTEM_ALERT_WINDOW is granted, the receiver can launch
-        // AlarmActivity from the background regardless of what the user
-        // is looking at. This is the primary path.
+        // Overlay path: fire the FullScreenIntentReceiver broadcast when
+        // SYSTEM_ALERT_WINDOW is granted. The receiver holds a BAL
+        // exemption through SYSTEM_ALERT_WINDOW and can foreground
+        // AlarmActivity over whatever is on screen. Without the
+        // permission the broadcast is not sent — the notification's
+        // full-screen intent remains as the lock-screen fallback.
         if (OverlayPermissionHelper.canDrawOverlays(context)) {
             try {
-                FullScreenIntentReceiver.intent(context, spec.id).send(
-                    context, 0, null
+                context.sendBroadcast(
+                    FullScreenIntentReceiver.intent(context, spec.id)
                 )
             } catch (e: Exception) {
                 Log.w(tag, "Overlay launch broadcast failed", e)
             }
         }
 
-        // ── Notification path: lock-screen + heads-up fallback ────────
         val canUseFullScreen = OverlayPermissionHelper.canUseFullScreenIntent(context)
         val fullScreen = pendingIntents.forFullScreen(spec.id)
 
