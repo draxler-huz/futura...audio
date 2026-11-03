@@ -289,17 +289,25 @@ class AlarmActivity : FragmentActivity() {
             animateTo(0f)
         }
 
-        fun doDismiss() {
-            if (biometricLocked) {
-                biometricLock.prompt(
-                    activity = this@AlarmActivity,
-                    onSuccess = { onDismissCompleted() },
-                    onFailure = { cancelConfirm() }
-                )
-            } else {
-                onDismissCompleted()
-            }
+       fun doDismiss() {
+    if (biometricLocked) {
+        // BiometricWakeUpLock.prompt is suspend and delivers a
+        // VaultUnlockProof to onSuccess. We launch in the composable's
+        // coroutine scope and ignore the proof — for alarm dismissal
+        // the fact that authentication succeeded is the only signal
+        // that matters; VaultManager.unlock() has its own flow when
+        // vault decryption is needed.
+        scope.launch {
+            biometricLock.prompt(
+                activity = this@AlarmActivity,
+                onSuccess = { _ -> onDismissCompleted() },
+                onFailure = { cancelConfirm() }
+            )
         }
+    } else {
+        onDismissCompleted()
+    }
+}
 
         Column(
             modifier = Modifier.fillMaxWidth(),
