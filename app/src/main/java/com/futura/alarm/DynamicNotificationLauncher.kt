@@ -1,107 +1,77 @@
-// app/src/main/java/com/futura/alarm/DynamicNotificationLauncher.kt
 package com.futura.alarm
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
-import android.util.Log
+import android.graphics.Color
 import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
-import com.futura.R
-import dagger.hilt.android.qualifiers.ApplicationContext
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
- * Builds and posts the active-alarm heads-up notification.
+ * Helper that creates and posts a full‑screen notification which launches
+ * [AlarmActivity] when the alarm fires.
  *
- * Uses `CATEGORY_ALARM` + `PRIORITY_MAX` + `setFullScreenIntent` so the
- * alarm triggers the Wake-Up Overlay above the lock screen on every
- * supported API level. Inline action buttons (Snooze / Dismiss) route
- * through [PendingIntentFactory].
- *
- * The alarm channel is created before the first post. On API 26+ a post to
- * a missing channel is dropped silently.
- *
- * The notification is safe to re-post — if the OS drops it (memory
- * pressure, user swipe), the caller just calls [show] again; the OS
- * deduplicates by notification id.
+ * The notification channel is created on first use.  The caller only needs to
+ * invoke [postFullScreenAlarm] with a spec identifier.
  */
-@Singleton
-class DynamicNotificationLauncher @Inject constructor(
-    @ApplicationContext private val context: Context,
-    private val pendingIntents: PendingIntentFactory,
-    private val channelResolver: DndBypassResolver
-) {
-    private val tag = "DynamicNotificationLauncher"
-    private val nm = NotificationManagerCompat.from(context)
+object DynamicNotificationLauncher {
+
+    private const val CHANNEL_ID = "futura_alarm_fullscreen"
+    private const val CHANNEL_NAME = "Futura Alarm (Full‑Screen)"
+    private const val NOTIFICATION_ID = 1001
 
     /**
-     * Post the active-alarm notification for [spec]. Returns true if the
-     * post succeeded (permission granted, notification manager accepted
-     * the request).
+     * Posts a full‑screen notification that opens [AlarmActivity] for the given
+     * `specId`.
+     *
+     * @param context Application or activity context.
+     * @param specId   The alarm specification ID used to deep‑link the activity.
      */
-    fun show(spec: AlarmSpec): Boolean = try {
-        channelResolver.ensureChannel()
+    fun postFullScreenAlarm(context: Context, specId: String) {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        ensureChannel(manager)
 
-        val builder = NotificationCompat.Builder(context, DndBypassResolver.CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_alarm)
-            .setContentTitle(
-                spec.label.ifBlank { context.getString(R.string.alarm_title) }
-            )
-            .setContentText(context.getString(R.string.alarm_action_snooze) +
-                " · " + context.getString(R.string.alarm_action_dismiss))
+        // Intent that opens the alarm UI via a deep link.
+        val alarmIntent = AlarmActivity.intent(context, specId)
+        val pending = PendingIntent.getActivity(
+            context,
+            /* requestCode = */ specId.hashCode(),
+            alarmIntent,
+            // FLAG_IMMUTABLE is required on API 31+, FLAG_UPDATE_CURRENT lets us reuse the same spec.
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        // Build the notification – the key part is setFullScreenIntent().
+        val notification: Notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setColor(Color.RED)
+            .setContentTitle("Alarm")
+            .setContentText("Tap to dismiss")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setOngoing(true)
-            .setAutoCancel(false)
-            .setWhen(System.currentTimeMillis())
-            .setShowWhen(true)
+            .setFullScreenIntent(pending, true)          // <<< forces full‑screen UI
+            .setAutoCancel(true)
+            .build()
 
-        pendingIntents.forSnooze(spec.id)?.let { pi ->
-            builder.addAction(
-                R.drawable.ic_alarm_snoozed,
-                context.getString(R.string.alarm_action_snooze),
-                pi
-            )
-        }
-        pendingIntents.forDismiss(spec.id)?.let { pi ->
-            builder.addAction(
-                R.drawable.ic_alarm_off,
-                context.getString(R.string.alarm_action_dismiss),
-                pi
-            )
-        }
-
-        pendingIntents.forFullScreen(spec.id)?.let { pi ->
-            builder.setFullScreenIntent(pi, /* highPriority = */ true)
-            builder.setContentIntent(pi)
-        }
-
-        val notification = builder.build()
-        try {
-            nm.notify(NOTIFICATION_ID_ALARM, notification)
-            true
-        } catch (e: SecurityException) {
-            Log.w(tag, "Notification permission denied; falling back to full-screen only", e)
-            // Even without notification permission, the full-screen intent
-            // is not blocked by POST_NOTIFICATIONS — the alarm activity
-            // still launches. Return false to signal that the notification
-            // itself did not post, so callers can decide.
-            false
-        }
-    } catch (e: Exception) {
-        Log.e(tag, "show() failed for ${spec.id}", e); false
+        manager.notify(NOTIFICATION_ID, notification)
     }
 
-    fun cancel() {
-        try {
-            nm.cancel(NOTIFICATION_ID_ALARM)
-        } catch (e: Exception) {
-            Log.w(tag, "cancel failed", e)
-        }
-    }
+    /** Creates the notification channel required for API‑26+. */
+    private fun ensureChannel(manager: NotificationManager) {
+        if (manager.getNotificationChannel(CHANNEL_ID) != null) return
 
-    companion object {
-        const val NOTIFICATION_ID_ALARM = 0xF00D
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            CHANNEL_NAME,
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            // A full‑screen intent must have high importance.
+            enableLights(true)
+            lightColor = Color.RED
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+        }
+
+        manager.createNotificationChannel(channel)
     }
 }
