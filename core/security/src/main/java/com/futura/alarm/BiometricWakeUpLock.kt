@@ -97,7 +97,8 @@ object VaultUnlockLedger {
 @Singleton
 class BiometricWakeUpLock @Inject internal constructor(
     @ApplicationContext private val context: Context,
-    private val pinVerifier: DecoyPinVerifier
+    private val pinVerifier: DecoyPinVerifier,
+    private val auditor: SecurityAccessAuditor
 ) {
     private val tag = "BiometricWakeUpLock"
     private val mutex = Mutex()
@@ -222,8 +223,22 @@ class BiometricWakeUpLock @Inject internal constructor(
      * for a wrong PIN and for an unverifiable attempt alike, so the caller
      * cannot tell them apart from the result.
      */
-    suspend fun unlockWithPin(pin: String): VaultUnlockProof? =
-        if (pinVerifier.verify(pin) == true) mintProof() else null
+    suspend fun unlockWithPin(pin: String): VaultUnlockProof? {
+        if (auditor.isLocked()) return null
+        return if (pinVerifier.verify(pin) == true) {
+            auditor.recordSuccess()
+            mintProof()
+        } else {
+            auditor.recordFailure()
+            null
+        }
+    }
+
+    /** Milliseconds until PIN entry is allowed again, or 0 when it is. */
+    fun pinLockoutRemainingMs(): Long = auditor.remainingLockoutMs()
+
+    /** Wrong PIN attempts left before the next cooldown. */
+    fun pinAttemptsLeft(): Int = auditor.attemptsLeft()
 
     // ── Internals ──────────────────────────────────────────────────
 

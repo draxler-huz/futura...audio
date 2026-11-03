@@ -1,8 +1,6 @@
 // app/src/main/java/com/futura/alarm/AlarmSpec.kt
 package com.futura.alarm
 
-import androidx.room.Entity
-import androidx.room.PrimaryKey
 import java.util.UUID
 
 /**
@@ -19,9 +17,8 @@ import java.util.UUID
  * The `CircadianAudioSync` module will read this to synchronise against
  * `CircadianRampModule`.
  */
-@Entity(tableName = "alarm_specs")
 data class AlarmSpec(
-    @PrimaryKey val id: String = UUID.randomUUID().toString(),
+    val id: String = UUID.randomUUID().toString(),
     val hour: Int,
     val minute: Int,
     val label: String = "",
@@ -44,7 +41,15 @@ data class AlarmSpec(
     /** Maximum snooze cycles before the alarm force-dismisses. */
     val maxSnoozeCycles: Int = 3,
     /** Creation timestamp (epoch ms). */
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    /** What must happen before the alarm can be dismissed. */
+    val challengeMode: ChallengeMode = ChallengeMode.NONE,
+    /** Sound a backup siren if the alarm is dismissed incorrectly. */
+    val failSafe: Boolean = false,
+    /** Screen, bulb and torch cues that follow the audio ramp. */
+    val visualSync: VisualSyncToggles = VisualSyncToggles(),
+    /** Dates (YYYY-MM-DD) on which this alarm is skipped. */
+    val calendarExceptions: List<String> = emptyList()
 ) {
     init {
         require(hour in 0..23) { "hour must be in [0, 23]" }
@@ -55,6 +60,9 @@ data class AlarmSpec(
         require(rampProfile in 1.0f..4.0f) { "rampProfile must be in [1, 4]" }
         require(snoozeBaseMinutes in 1..60) { "snoozeBaseMinutes must be in [1, 60]" }
         require(maxSnoozeCycles in 0..10) { "maxSnoozeCycles must be in [0, 10]" }
+        require(calendarExceptions.all { DATE_PATTERN.matches(it) }) {
+            "calendarExceptions must be YYYY-MM-DD"
+        }
     }
 
     /** Next trigger epoch in ms, strictly after [from] (default: now). */
@@ -85,3 +93,15 @@ data class AlarmSpec(
         return from + 24 * 60 * 60 * 1000L
     }
 }
+
+/** How the user must authenticate to stop the alarm. */
+enum class ChallengeMode { NONE, STRICT_BIOMETRIC, BIOMETRIC_PLUS_MATH }
+
+/** Visual cues that follow the audio ramp. */
+data class VisualSyncToggles(
+    val screenFlash: Boolean = false,
+    val smartBulbSync: Boolean = false,
+    val flashlight: Boolean = false
+)
+
+private val DATE_PATTERN = Regex("\\d{4}-\\d{2}-\\d{2}")

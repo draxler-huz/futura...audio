@@ -44,17 +44,13 @@ internal class SecurityAccessAuditor @Inject constructor() {
     /** Record one failed verification. Returns the resulting lockout
      *  duration in ms (0 if still under the grace threshold). */
     suspend fun recordFailure(): Long = mutex.withLock {
-        val newFailures = _failures.value + 1
-        _failures.value = newFailures
-        if (newFailures < MIN_FAILURES_BEFORE_LOCKOUT) {
+        _failures.value += 1
+        if (_failures.value % MIN_FAILURES_BEFORE_LOCKOUT != 0) {
             return@withLock 0L
         }
-        val exponent = (newFailures - MIN_FAILURES_BEFORE_LOCKOUT)
-            .coerceAtMost(MAX_BACKOFF_EXPONENT)
-        val delayMs = BACKOFF_BASE_MS * (1L shl exponent)
-        _lockedUntilMs.value = System.currentTimeMillis() + delayMs
-        Log.w(tag, "Failure #$newFailures — locked for ${delayMs}ms")
-        delayMs
+        _lockedUntilMs.value = System.currentTimeMillis() + LOCKOUT_MS
+        Log.w(tag, "Failure #${_failures.value} — locked for ${LOCKOUT_MS}ms")
+        LOCKOUT_MS
     }
 
     /** Record a successful verification. Clears all state. */
@@ -66,6 +62,9 @@ internal class SecurityAccessAuditor @Inject constructor() {
         _lockedUntilMs.value = 0L
     }
 
+    /** Failed attempts left before the next lockout. */
+    fun attemptsLeft(): Int = MIN_FAILURES_BEFORE_LOCKOUT - (_failures.value % MIN_FAILURES_BEFORE_LOCKOUT)
+
     /** Reset on app restart — see class KDoc for the security rationale. */
     suspend fun reset() = mutex.withLock {
         _failures.value = 0
@@ -74,7 +73,6 @@ internal class SecurityAccessAuditor @Inject constructor() {
 
     private companion object {
         const val MIN_FAILURES_BEFORE_LOCKOUT = 3
-        const val BACKOFF_BASE_MS = 2_000L
-        const val MAX_BACKOFF_EXPONENT = 6  // caps at 2000 * 64 = 128s
+        const val LOCKOUT_MS = 30_000L
     }
 }

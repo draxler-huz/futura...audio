@@ -189,6 +189,14 @@ class AlarmStore @Inject constructor(
         put("snoozeBaseMinutes", s.snoozeBaseMinutes)
         put("maxSnoozeCycles", s.maxSnoozeCycles)
         put("createdAt", s.createdAt)
+        put("challengeMode", s.challengeMode.name)
+        put("failSafe", s.failSafe)
+        put("visualSync", JSONObject().apply {
+            put("screenFlash", s.visualSync.screenFlash)
+            put("smartBulbSync", s.visualSync.smartBulbSync)
+            put("flashlight", s.visualSync.flashlight)
+        })
+        put("calendarExceptions", JSONArray(s.calendarExceptions))
     }
 
     private fun jsonToSpec(j: JSONObject): AlarmSpec = AlarmSpec(
@@ -205,7 +213,21 @@ class AlarmStore @Inject constructor(
         enabled = j.optBoolean("enabled", true),
         snoozeBaseMinutes = j.optInt("snoozeBaseMinutes", 5),
         maxSnoozeCycles = j.optInt("maxSnoozeCycles", 3),
-        createdAt = j.optLong("createdAt", System.currentTimeMillis())
+        createdAt = j.optLong("createdAt", System.currentTimeMillis()),
+        challengeMode = runCatching {
+            ChallengeMode.valueOf(j.optString("challengeMode", ChallengeMode.NONE.name))
+        }.getOrDefault(ChallengeMode.NONE),
+        failSafe = j.optBoolean("failSafe", false),
+        visualSync = j.optJSONObject("visualSync")?.let { v ->
+            VisualSyncToggles(
+                screenFlash = v.optBoolean("screenFlash", false),
+                smartBulbSync = v.optBoolean("smartBulbSync", false),
+                flashlight = v.optBoolean("flashlight", false)
+            )
+        } ?: VisualSyncToggles(),
+        calendarExceptions = j.optJSONArray("calendarExceptions")?.let { arr ->
+            (0 until arr.length()).map { arr.getString(it) }
+        } ?: emptyList()
     )
 
     private companion object {
