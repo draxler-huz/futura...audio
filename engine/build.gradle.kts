@@ -62,7 +62,10 @@ android {
             }
         }
         release {
-            isMinifyEnabled = true
+            // A library does not shrink its own classes: JNI-only classes such as
+            // DspBridge and NativeEngine get removed and the app's R8 then fails.
+            // Shrinking happens in the app module, guided by the consumer rules below.
+            isMinifyEnabled = false
             consumerProguardFiles("proguard-rules.pro")
             externalNativeBuild {
                 cmake {
