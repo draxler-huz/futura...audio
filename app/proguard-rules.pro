@@ -207,3 +207,9 @@
 -dontwarn sun.misc.Unsafe
 -dontwarn org.jetbrains.annotations.**
 -dontwarn org.checkerframework.**
+
+# Temporary: R8 8.5.x throws ConcurrentModificationException in its shaking
+# pass for this app's graph (CI, release minify). Skipping dead-code removal
+# avoids that pass. Obfuscation and optimisation still run. Remove once R8
+# is fixed or upgraded.
+-dontshrink

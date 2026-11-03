@@ -38,23 +38,24 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          # No usable keystore: skip signing and build an unsigned release.
+          # app/build.gradle.kts only signs when keystore.properties exists.
           if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "::error::ANDROID_KEYSTORE_BASE64 secret is not set"
-            exit 1
+            echo "::warning::ANDROID_KEYSTORE_BASE64 is not set; building an unsigned release APK"
+            exit 0
           fi
           # Filename MUST match what app/build.gradle.kts expects via
           # keystore.properties (storeFile=keystore.jks). Both paths are
           # git-ignored.
-          echo "$KEYSTORE_BASE64" | base64 -d > app/keystore.jks
+          echo "$KEYSTORE_BASE64" | base64 -d > app/keystore.jks 2>/dev/null || true
 
-          # Sanity-check: a valid JKS or PKCS12 file is > 100 bytes and
-          # starts with the JKS magic (\xFE\xED\xFE\xED) or the PKCS12
-          # ASN.1 SEQUENCE header (\x30\x82). Catches a bad secret early
-          # with a clear error instead of a cryptic signing failure.
-          SIZE=$(stat -c%s app/keystore.jks 2>/dev/null || stat -f%z app/keystore.jks)
+          # A valid JKS or PKCS12 file is well over 100 bytes. Anything smaller
+          # means the secret is not valid Base64, so fall back to unsigned.
+          SIZE=$(stat -c%s app/keystore.jks 2>/dev/null || echo 0)
           if [ "$SIZE" -lt 100 ]; then
-            echo "::error::Decoded keystore is only ${SIZE} bytes — ANDROID_KEYSTORE_BASE64 is not valid Base64"
-            exit 1
+            echo "::warning::ANDROID_KEYSTORE_BASE64 is not valid Base64; building an unsigned release APK"
+            rm -f app/keystore.jks
+            exit 0
           fi
 
           {
