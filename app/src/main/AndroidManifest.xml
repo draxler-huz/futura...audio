@@ -294,6 +294,11 @@
             </intent-filter>
         </receiver>
 
+
+
+        <receiver
+            android:name=".alarm.FullScreenIntentReceiver"
+            android:exported="false" />
         <!-- BOOT_COMPLETED re-arm scheduler (BootCompletionHandler). -->
         <receiver
             android:name=".alarm.BootCompletionHandler"
