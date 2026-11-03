@@ -85,6 +85,7 @@ import com.futura.alarm.VaultUnlockProof
 import com.futura.ui.screens.AlarmEditorScreen
 import com.futura.ui.screens.AlarmListScreen
 import com.futura.ui.screens.LoadingScreen
+import com.futura.ui.screens.VaultContentScreen
 import com.futura.ui.screens.VaultSecurityScreen
 import com.futura.ui.screens.findFragmentActivity
 import com.futura.ui.viewmodel.AlarmEditorViewModel
@@ -127,6 +128,9 @@ enum class MainRoute(val route: String) {
 
     /** Biometric and PIN gate for the vault. */
     VaultSecurity("vault"),
+
+    /** The unlocked vault: protected records. */
+    VaultContent("vault_content"),
 
     /** Phase 2 — Now Playing surface (NowPlayingScreen). */
     NowPlaying("now_playing"),
@@ -371,8 +375,17 @@ private fun MainNavHost(
         }
         composable(MainRoute.VaultSecurity.route) {
             VaultSecurityScreen(
-                onUnlocked = { navController.popBackStack() },
+                onUnlocked = {
+                    navController.navigate(MainRoute.VaultContent.route) {
+                        popUpTo(MainRoute.VaultSecurity.route) { inclusive = true }
+                    }
+                },
                 onCancel = { navController.popBackStack() }
+            )
+        }
+        composable(MainRoute.VaultContent.route) {
+            VaultContentScreen(
+                onLocked = { navController.popBackStack(MainRoute.AlarmList.route, false) }
             )
         }
         composable(MainRoute.WakeUpOverlay.route) {

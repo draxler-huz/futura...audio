@@ -40,22 +40,19 @@ import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.futura.alarm.VaultUnlockProof
 import com.futura.ui.theme.FuturaColors
 import com.futura.ui.viewmodel.VaultSecurityViewModel
 import kotlinx.coroutines.delay
 
 /**
- * Gate in front of the vault and of biometric alarm changes.
- *
- * Offers a biometric prompt and a 5-digit PIN keypad. The keypad layout is
- * shuffled on every attempt. A successful unlock returns a single-use
- * [VaultUnlockProof] through [onUnlocked]. FLAG_SECURE keeps the screen out
- * of screenshots and the app switcher while it is shown.
+ * Gate in front of the vault. Offers a biometric prompt and a 5-digit PIN
+ * keypad that reshuffles after each wrong attempt. Lockout is enforced by the
+ * security module and shown here. [onUnlocked] runs once the vault is open.
+ * FLAG_SECURE is set while the screen is shown.
  */
 @Composable
 fun VaultSecurityScreen(
-    onUnlocked: (VaultUnlockProof) -> Unit,
+    onUnlocked: () -> Unit,
     onCancel: () -> Unit,
     viewModel: VaultSecurityViewModel = hiltViewModel()
 ) {
@@ -66,21 +63,20 @@ fun VaultSecurityScreen(
     var layoutSeed by remember { mutableStateOf(0) }
     val keys = remember(layoutSeed) { (0..9).shuffled() }
 
-    // Keep secure content off screenshots and the app switcher.
     DisposableEffect(activity) {
         val window = activity?.window
         window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
     }
 
-    // Count the cooldown down once a second.
-    val now by produceState(System.currentTimeMillis(), state.lockedUntilMs) {
+    // Tick the cooldown once a second. It is read from the security module.
+    val now by produceState(System.currentTimeMillis(), state.failedAttempts) {
         while (true) {
             value = System.currentTimeMillis()
             delay(1_000L)
         }
     }
-    val cooldownSeconds = ((state.lockedUntilMs - now).coerceAtLeast(0L) + 999L) / 1000L
+    val cooldownSeconds = (viewModel.cooldownRemainingMs().coerceAtLeast(0L) + 999L) / 1000L
     val locked = cooldownSeconds > 0L
 
     // A wrong attempt clears the entry and reshuffles the keypad.
@@ -137,15 +133,11 @@ fun VaultSecurityScreen(
                 .size(width = 220.dp, height = 48.dp)
                 .clip(RoundedCornerShape(24.dp))
                 .border(1.dp, FuturaColors.Cyan, RoundedCornerShape(24.dp))
-                .clickable(enabled = !state.busy && activity != null) {
+                .clickable(enabled = !state.busy && !locked && activity != null) {
                     activity?.let { viewModel.unlockWithBiometrics(it, onUnlocked) }
                 }
         ) {
-            Text(
-                text = "Use fingerprint or face",
-                color = FuturaColors.Cyan,
-                fontSize = 14.sp
-            )
+            Text(text = "Use fingerprint or face", color = FuturaColors.Cyan, fontSize = 14.sp)
         }
 
         Spacer(Modifier.height(24.dp))
@@ -168,9 +160,7 @@ fun VaultSecurityScreen(
             keys = keys,
             enabled = !locked && !state.busy,
             onDigit = { press(it) },
-            onBackspace = {
-                if (pin.isNotEmpty()) pin = pin.dropLast(1)
-            }
+            onBackspace = { if (pin.isNotEmpty()) pin = pin.dropLast(1) }
         )
     }
 }
@@ -185,17 +175,15 @@ private fun PinDots(filled: Int, total: Int) {
                 modifier = Modifier
                     .size(14.dp)
                     .clip(CircleShape)
-                    .background(
-                        if (index < filled) FuturaColors.Cyan else FuturaColors.SurfaceRecessed
-                    )
+                    .background(if (index < filled) FuturaColors.Cyan else FuturaColors.SurfaceRecessed)
             )
         }
     }
 }
 
 /**
- * 3x4 keypad. The digits come in the order given by [keys], so the layout
- * changes between attempts. Bottom row: blank, the last digit, backspace.
+ * 3x4 keypad. Digits follow [keys], so the layout changes between attempts.
+ * Bottom row: blank, the last digit, backspace.
  */
 @Composable
 private fun Keypad(
