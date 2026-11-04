@@ -417,7 +417,10 @@ private fun MainNavHost(
         }
         composable(MainRoute.MediaHub.route) {
             val vm: UniversalMediaViewModel = hiltViewModel()
-            UniversalMediaScreen(viewModel = vm)
+            UniversalMediaScreen(
+                viewModel = vm,
+                onBackClick = { navController.popBackStack() }
+            )
         }
         composable(MainRoute.DjStudio.route) {
             DjStudioPlaceholder(

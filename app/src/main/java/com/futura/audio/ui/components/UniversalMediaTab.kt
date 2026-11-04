@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,7 +22,8 @@ import com.futura.audio.ui.viewmodel.UniversalMediaViewModel
 
 @Composable
 fun UniversalMediaScreen(
-    viewModel: UniversalMediaViewModel
+    viewModel: UniversalMediaViewModel,
+    onBackClick: (() -> Unit)? = null // Optional: only provided when pushed onto a back stack
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var inputUrl by remember { mutableStateOf("") }
@@ -33,13 +35,30 @@ fun UniversalMediaScreen(
                 .background(Color(0xFF0A0C10))
                 .padding(16.dp)
         ) {
-            // Header
-            Text(
-                text = "Universal Media Hub",
-                color = Color.White,
-                fontSize = 24.sp,
-                style = MaterialTheme.typography.headlineMedium
-            )
+            // Header with optional back button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (onBackClick != null) {
+                    IconButton(
+                        onClick = onBackClick,
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White
+                        )
+                    }
+                }
+                Text(
+                    text = "Universal Media Hub",
+                    color = Color.White,
+                    fontSize = 24.sp,
+                    style = MaterialTheme.typography.headlineMedium
+                )
+            }
             Spacer(modifier = Modifier.height(10.dp))
 
             // Category Filter

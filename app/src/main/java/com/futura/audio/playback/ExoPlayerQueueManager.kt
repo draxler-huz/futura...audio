@@ -1,6 +1,8 @@
 package com.futura.audio.playback
 
+import android.net.Uri
 import androidx.media3.common.MediaItem as Media3Item
+import androidx.media3.common.MediaMetadata
 import androidx.media3.exoplayer.ExoPlayer
 import com.futura.audio.domain.MediaItem
 import javax.inject.Inject
@@ -14,11 +16,18 @@ class ExoPlayerQueueManager @Inject constructor(
 ) {
 
     fun loadAndPlayQueue(items: List<MediaItem>, startIndex: Int = 0) {
-        val media3Items = items.map { item ->
+        val media3Items: List<Media3Item> = items.map { item: MediaItem ->
+            // Subtitle and artwork live in MediaMetadata in Media3, not on MediaItem.Builder.
+            val metadata = MediaMetadata.Builder()
+                .setTitle(item.title)
+                .setArtist(item.artist)
+                .setArtworkUri(item.artworkUrl?.let { Uri.parse(it) })
+                .build()
+
             Media3Item.Builder()
                 .setMediaId(item.id)
                 .setUri(item.streamUrl)
-                .setSubtitle(item.artist)
+                .setMediaMetadata(metadata)
                 .build()
         }
 
