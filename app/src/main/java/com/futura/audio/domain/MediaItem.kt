@@ -17,5 +17,6 @@ data class MediaItem(
     val sourceName: String,      // e.g., "Podcast RSS", "Official Web Embed", "Direct Stream"
     val subcategory: String,     // e.g., "syndication.rss", "metadata.opengraph"
     val durationMs: Long = 0L,
-    val route: PlaybackRoute = PlaybackRoute.EXOPLAYER_DIRECT
+    val route: PlaybackRoute = PlaybackRoute.EXOPLAYER_DIRECT,
+    val category: PipelineCategory = PipelineCategory.COMPLIANT_STANDARD  // UI filter and accent color
 )
