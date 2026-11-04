@@ -92,6 +92,12 @@ import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.compose.currentBackStackEntryAsState
+import android.util.Log
+import androidx.lifecycle.lifecycleScope
+import com.futura.audio.playback.IncomingMediaHandler
+import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import com.futura.R
 import com.futura.alarm.VaultUnlockProof
 import com.futura.audio.ui.components.UniversalMediaScreen
@@ -260,6 +266,9 @@ class MainActivity : ComponentActivity() {
      */
     private val pendingRoute = MutableStateFlow<MainRoute?>(null)
 
+    @Inject
+    lateinit var incomingMedia: IncomingMediaHandler
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -272,6 +281,8 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) {
             pendingRoute.value = MainRoute.fromIntent(intent)
         }
+
+        if (savedInstanceState == null) handleIncoming(intent)
 
         setContent {
             FuturaTheme {
@@ -292,6 +303,24 @@ class MainActivity : ComponentActivity() {
         // would have done had the activity been created fresh.
         setIntent(intent)
         pendingRoute.value = MainRoute.fromIntent(intent)
+        handleIncoming(intent)
+    }
+
+    /** Plays audio shared or opened from another app, then shows Now Playing. */
+    private fun handleIncoming(intent: Intent?) {
+        val uri = intent?.let { incomingMedia.uriFrom(it) } ?: return
+        lifecycleScope.launch {
+            try {
+                incomingMedia.play(uri)
+                // Clear first so a later share still navigates when the value repeats.
+                pendingRoute.value = null
+                pendingRoute.value = MainRoute.NowPlaying
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Could not play shared audio", e)
+            }
+        }
     }
 }
 

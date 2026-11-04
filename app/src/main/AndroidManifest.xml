@@ -172,7 +172,7 @@
         <activity
             android:name=".ui.MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density|smallestScreenSize"
-            android:exported="false"
+            android:exported="true"
             android:launchMode="singleTask"
             android:resizeableActivity="true"
             android:theme="@style/Theme.Futura"
@@ -191,6 +191,20 @@
                 <data
                     android:host="alarm"
                     android:scheme="futura" />
+            </intent-filter>
+                    <!-- Open or share an audio file from another app (Xender, file managers). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" android:mimeType="audio/*" />
+                <data android:scheme="file" android:mimeType="audio/*" />
+                <data android:scheme="content" android:mimeType="application/ogg" />
+                <data android:scheme="file" android:mimeType="application/ogg" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="audio/*" />
             </intent-filter>
         </activity>
 
