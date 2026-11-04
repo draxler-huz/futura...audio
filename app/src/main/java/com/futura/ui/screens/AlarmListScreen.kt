@@ -16,6 +16,9 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -30,6 +33,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -80,7 +86,11 @@ fun AlarmListScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(FuturaColors.OLEDBlack)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(Color(0xFF0F131E), Color(0xFF07090E), Color(0xFF040507))
+                )
+            )
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             TopBar(
@@ -203,13 +213,24 @@ private fun TopBar(nextAlarm: AlarmSpec?, hasAlarms: Boolean, onOpenVault: () ->
                 shape = RoundedCornerShape(14.dp)
             )
         ) {
-            Text(
-                text = "Vault",
-                color = FuturaColors.Amber,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp)
-            )
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Lock,
+                    contentDescription = "Vault",
+                    tint = FuturaColors.Amber,
+                    modifier = Modifier.size(14.dp)
+                )
+                Text(
+                    text = "Vault",
+                    color = FuturaColors.Amber,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
     }
 }
@@ -251,7 +272,11 @@ private fun AlarmCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
             .background(FuturaColors.SurfaceBase)
-            .border(1.dp, FuturaColors.SurfaceRaised, RoundedCornerShape(20.dp))
+            .border(
+                1.dp,
+                if (spec.enabled) FuturaColors.Cyan.copy(alpha = 0.3f) else FuturaColors.SurfaceRaised,
+                RoundedCornerShape(20.dp)
+            )
             .clickable(onClick = onClick)
             .padding(18.dp)
     ) {
@@ -338,7 +363,9 @@ private fun Tag(text: String, color: androidx.compose.ui.graphics.Color) {
 private fun AddButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     FloatingActionButton(
         onClick = onClick,
-        modifier = modifier.size(60.dp),
+        modifier = modifier
+            .size(60.dp)
+            .shadow(12.dp, CircleShape, ambientColor = FuturaColors.Cyan, spotColor = FuturaColors.Cyan),
         shape = CircleShape,
         containerColor = FuturaColors.Cyan,
         contentColor = FuturaColors.OLEDBlack
