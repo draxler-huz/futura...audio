@@ -58,7 +58,6 @@ class FuturaAlarmService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        audioSession.attach()
         orchestrator.attach()
     }
 

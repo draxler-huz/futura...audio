@@ -11,21 +11,16 @@ import java.io.File
 import com.futura.engine.DspChainController
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * Runs the audio side of an alarm session. The circadian ramp drives the
- * DSP pre-amp, and nothing else.
+* Runs the audio side of an alarm session. AlarmSessionOrchestrator drives
+ * its lifecycle; the circadian ramp drives the DSP pre-amp, and nothing else.
  *
  * - Firing starts the DSP chain, the ramp and the gain loop.
  * - Snoozed and Dismissed stop them. The gain loop sends 0f before it ends.
@@ -45,27 +40,9 @@ class AlarmAudioSession @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     private val tag = "AlarmAudioSession"
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val lifecycleMutex = Mutex()
-    private var collector: Job? = null
     private var activeSpecId: String? = null
 
-    /** Subscribe to the coordinator's events. Safe to call more than once. */
-    fun attach() {
-        if (collector?.isActive == true) return
-        collector = scope.launch {
-            coordinator.events.collect { event ->
-                when (event) {
-                    is AlarmCoordinator.AlarmEvent.Firing -> {
-                        coordinator.session.value?.spec?.let { start(it) }
-                    }
-                    is AlarmCoordinator.AlarmEvent.Snoozed,
-                    is AlarmCoordinator.AlarmEvent.Dismissed -> stop()
-                    else -> Unit
-                }
-            }
-        }
-    }
 
     /** Restart the audio after the service is restored with a FIRING session. */
     suspend fun resumeIfFiring() {
@@ -73,7 +50,7 @@ class AlarmAudioSession @Inject constructor(
         if (session.phase == AlarmCoordinator.Phase.FIRING) start(session.spec)
     }
 
-    private suspend fun start(spec: AlarmSpec) = lifecycleMutex.withLock {
+    internal suspend fun start(spec: AlarmSpec) = lifecycleMutex.withLock {
         if (activeSpecId == spec.id) return@withLock
         if (activeSpecId != null) stopLocked()
         activeSpecId = spec.id
@@ -111,7 +88,7 @@ class AlarmAudioSession @Inject constructor(
     }
 
     /** Stop native playback, ramp, haptics, and audio focus. Idempotent. */
-    private suspend fun stop() = lifecycleMutex.withLock { stopLocked() }
+    internal suspend fun stop() = lifecycleMutex.withLock { stopLocked() }
 
     private suspend fun stopLocked() {
         if (activeSpecId == null) return

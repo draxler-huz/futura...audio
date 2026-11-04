@@ -12,12 +12,13 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 /**
- * Starts and stops missed-alarm actions from the coordinator's session state.
- * Native audio playback remains in AlarmAudioSession and is not replaced.
+ * Starts and stops native audio and missed-alarm actions from the coordinator's session state.
+ * The existing audio and escalation implementations remain responsible for their own work.
  */
 @Singleton
 class AlarmSessionOrchestrator @Inject constructor(
     private val coordinator: AlarmCoordinator,
+    private val audioSession: AlarmAudioSession,
     private val executor: MissedAlarmExecutor
 ) {
     private val tag = "AlarmSessionOrchestrator"
@@ -38,9 +39,11 @@ class AlarmSessionOrchestrator @Inject constructor(
                     .collect { session ->
                         try {
                             if (session?.phase == AlarmCoordinator.Phase.FIRING) {
+                                audioSession.start(session.spec)
                                 executor.start(session.spec)
                             } else {
                                 executor.stop()
+                                audioSession.stop()
                             }
                         } catch (e: CancellationException) {
                             throw e
