@@ -9,10 +9,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Single entry point for the UI. Resolves a URL, then splits the result by
- * route. Direct audio goes to ExoPlayer on the main thread. Web embeds are
- * returned to the caller, which shows them in the WebView container. They
- * never reach ExoPlayer.
+ * Single source of truth for the UI layer. The ViewModel calls this and never
+ * touches factories, parsers, or ExoPlayer directly.
+ *
+ * - [resolve] returns every item for a URL, unchanged, including web embeds.
+ * - [playDirect] sends only EXOPLAYER_DIRECT items to ExoPlayer, on Main.
+ *   Web embeds are filtered out and never reach ExoPlayer.
  */
 @Singleton
 class MusicSourceRepository @Inject constructor(
@@ -20,24 +22,14 @@ class MusicSourceRepository @Inject constructor(
     private val queue: ExoPlayerQueueManager
 ) {
 
-    data class PlayResult(
-        /** Items the caller must show in the WebView container. */
-        val webEmbeds: List<MediaItem>,
-        /** How many direct items were sent to ExoPlayer. */
-        val directCount: Int
-    )
+    suspend fun resolve(url: String): List<MediaItem> = factory.resolve(url)
 
-    suspend fun play(url: String, startIndex: Int = 0): PlayResult {
-        val items = factory.resolve(url)
+    suspend fun playDirect(items: List<MediaItem>, startIndex: Int = 0) {
         val direct = items.filter { it.route == PlaybackRoute.EXOPLAYER_DIRECT }
-        val embeds = items.filter { it.route == PlaybackRoute.WEB_EMBED_CONTAINER }
-
-        if (direct.isNotEmpty()) {
-            val start = startIndex.coerceIn(0, direct.lastIndex)
-            withContext(Dispatchers.Main) {
-                queue.loadAndPlayQueue(direct, start)
-            }
+        if (direct.isEmpty()) return
+        val start = startIndex.coerceIn(0, direct.lastIndex)
+        withContext(Dispatchers.Main) {
+            queue.loadAndPlayQueue(direct, start)
         }
-        return PlayResult(webEmbeds = embeds, directCount = direct.size)
     }
 }
