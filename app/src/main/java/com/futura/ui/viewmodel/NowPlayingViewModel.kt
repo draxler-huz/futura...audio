@@ -82,6 +82,9 @@
 package com.futura.ui.viewmodel
 
 import android.content.Context
+import androidx.media3.common.C
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.futura.R
@@ -192,7 +195,8 @@ data class NowPlayingUiState(
 
 @HiltViewModel
 class NowPlayingViewModel @Inject constructor(
-    @ApplicationContext context: Context
+    @ApplicationContext context: Context,
+    private val player: ExoPlayer
 ) : ViewModel() {
 
     // ═════════════════════════════════════════════════════════════════════
@@ -257,6 +261,32 @@ class NowPlayingViewModel @Inject constructor(
     val waveformData: StateFlow<FloatArray?> = _waveformData.asStateFlow()
 
     // ═════════════════════════════════════════════════════════════════════
+    // ExoPlayer binding
+    // ═════════════════════════════════════════════════════════════════════
+
+    private val placeholderTitle = context.getString(R.string.widget_track_title_placeholder)
+    private val placeholderArtist = context.getString(R.string.widget_track_artist_placeholder)
+    private var positionTicker: Job? = null
+
+    private val playerListener = object : Player.Listener {
+        override fun onEvents(player: Player, events: Player.Events) {
+            syncFromPlayer()
+        }
+    }
+
+    init {
+        // The same player instance backs the MediaSession in FuturaPlaybackService.
+        player.addListener(playerListener)
+        syncFromPlayer()
+    }
+
+    override fun onCleared() {
+        player.removeListener(playerListener)
+        stopPositionTicker()
+        super.onCleared()
+    }
+
+    // ═════════════════════════════════════════════════════════════════════
     // Playback callbacks
     // ═════════════════════════════════════════════════════════════════════
 
@@ -271,19 +301,14 @@ class NowPlayingViewModel @Inject constructor(
      * the track's duration, position resets to 0 before resuming.
      */
     fun onPlayPauseClick() {
-        val state = _uiState.value
-        if (state.trackId == null) return
-
-        val newIsPlaying = !state.isPlaying
-
-        // Restart from 0 if we are (re)starting playback at the very end.
-        if (newIsPlaying && state.durationMs > 0L && _positionMs.value >= state.durationMs) {
-            _positionMs.value = 0L
+        if (player.mediaItemCount == 0) return
+        if (player.isPlaying) {
+            player.pause()
+        } else {
+            // Restart from 0 if playback had reached the end.
+            if (player.playbackState == Player.STATE_ENDED) player.seekTo(0L)
+            player.play()
         }
-
-        _uiState.update { it.copy(isPlaying = newIsPlaying) }
-
-        if (newIsPlaying) startPositionTicker() else stopPositionTicker()
     }
 
     /**
@@ -294,12 +319,7 @@ class NowPlayingViewModel @Inject constructor(
      * (`system/MediaSessionCoordinator.kt`).
      */
     fun onNextClick() {
-        val state = _uiState.value
-        val queue = state.upNext
-        if (queue.isEmpty()) return
-        val currentIdx = queue.indexOfFirst { it.id == state.trackId }
-        val nextIdx = if (currentIdx < 0) 0 else (currentIdx + 1) % queue.size
-        loadTrack(queue[nextIdx])
+        if (player.hasNextMediaItem()) player.seekToNextMediaItem()
     }
 
     /**
@@ -311,12 +331,8 @@ class NowPlayingViewModel @Inject constructor(
      * running for more than a few seconds (standard Media3 behaviour).
      */
     fun onPreviousClick() {
-        val state = _uiState.value
-        val queue = state.upNext
-        if (queue.isEmpty()) return
-        val currentIdx = queue.indexOfFirst { it.id == state.trackId }
-        val prevIdx = if (currentIdx <= 0) queue.size - 1 else currentIdx - 1
-        loadTrack(queue[prevIdx])
+        // Media3 restarts the current item if playback is past its first few seconds.
+        if (player.mediaItemCount > 0) player.seekToPreviousMediaItem()
     }
 
     /**
@@ -327,7 +343,7 @@ class NowPlayingViewModel @Inject constructor(
      * (`system/MediaSessionCoordinator.kt`).
      */
     fun onShuffleClick() {
-        _uiState.update { it.copy(isShuffleEnabled = !it.isShuffleEnabled) }
+        player.shuffleModeEnabled = !player.shuffleModeEnabled
     }
 
     /**
@@ -337,7 +353,8 @@ class NowPlayingViewModel @Inject constructor(
      * `Player.REPEAT_MODE_ONE` / `REPEAT_MODE_ALL` on the MediaSession.
      */
     fun onLoopClick() {
-        _uiState.update { it.copy(isLoopEnabled = !it.isLoopEnabled) }
+        player.repeatMode =
+            if (player.repeatMode == Player.REPEAT_MODE_OFF) Player.REPEAT_MODE_ALL else Player.REPEAT_MODE_OFF
     }
 
     /**
@@ -363,9 +380,10 @@ class NowPlayingViewModel @Inject constructor(
      * will also issue `MediaController.seekTo(ms)` on the MediaSession.
      */
     fun onSeek(fraction: Float) {
-        val duration = _uiState.value.durationMs
-        if (duration <= 0L) return
-        _positionMs.value = (fraction.coerceIn(0f, 1f) * duration).toLong()
+        val duration = player.duration
+        if (duration == C.TIME_UNSET || duration <= 0L) return
+        player.seekTo((fraction.coerceIn(0f, 1f) * duration).toLong())
+        _positionMs.value = player.currentPosition
     }
 
     /**
@@ -376,9 +394,9 @@ class NowPlayingViewModel @Inject constructor(
      * issue a MediaSession seek.
      */
     fun onSeekToLine(startMs: Long) {
-        val duration = _uiState.value.durationMs
-        if (duration <= 0L) return
-        _positionMs.value = startMs.coerceIn(0L, duration)
+        if (player.mediaItemCount == 0) return
+        player.seekTo(startMs.coerceAtLeast(0L))
+        _positionMs.value = player.currentPosition
     }
 
     // ═════════════════════════════════════════════════════════════════════
@@ -393,14 +411,11 @@ class NowPlayingViewModel @Inject constructor(
      * mirror the new order to the MediaSession queue.
      */
     fun onReorderQueue(from: Int, to: Int) {
-        _uiState.update { state ->
-            val list = state.upNext.toMutableList()
-            if (from in list.indices && to in list.indices && from != to) {
-                val moved = list.removeAt(from)
-                list.add(to, moved)
-            }
-            state.copy(upNext = list)
-        }
+        // `upNext` lists the items after the current one, so offset by one.
+        val base = player.currentMediaItemIndex + 1
+        val size = player.mediaItemCount - base
+        if (from == to || from !in 0 until size || to !in 0 until size) return
+        player.moveMediaItem(base + from, base + to)
     }
 
     /**
@@ -412,30 +427,34 @@ class NowPlayingViewModel @Inject constructor(
      * the MediaSession.
      */
     fun onQueueItemClick(item: UpNextItem) {
-        loadTrack(item)
+        for (i in 0 until player.mediaItemCount) {
+            if (player.getMediaItemAt(i).mediaId == item.id) {
+                player.seekTo(i, 0L)
+                player.play()
+                return
+            }
+        }
     }
 
     /**
      * Tap a similar-suggestion row. Appends the item to the up-next
      * queue if it is not already present (deduped by id).
      */
-    fun onSimilarSuggestionClick(item: UpNextItem) {
-        appendToQueueIfMissing(item)
+    fun onSimilarSuggestionClick(@Suppress("UNUSED_PARAMETER") item: UpNextItem) {
+        // Seam: enqueuing needs a stream URI on UpNextItem, which it does not carry yet.
     }
 
     /**
      * Tap a related-track row. Appends the item to the up-next queue if
      * it is not already present (deduped by id).
      */
-    fun onRelatedTrackClick(item: UpNextItem) {
-        appendToQueueIfMissing(item)
+    fun onRelatedTrackClick(@Suppress("UNUSED_PARAMETER") item: UpNextItem) {
+        // Seam: enqueuing needs a stream URI on UpNextItem, which it does not carry yet.
     }
 
     // ═════════════════════════════════════════════════════════════════════
     // Internals
     // ═════════════════════════════════════════════════════════════════════
-
-    private var positionTicker: Job? = null
 
     /**
      * Populate the current track from a queue item's placeholder
@@ -447,28 +466,38 @@ class NowPlayingViewModel @Inject constructor(
      * `PlaybackState`-driven updates populate the state. This function
      * exists only while no MediaSession is wired.
      */
-    private fun loadTrack(item: UpNextItem) {
-        stopPositionTicker()
-        _uiState.update {
-            it.copy(
-                trackId = item.id,
-                trackTitle = item.title,
-                trackArtist = item.artist,
-                durationMs = item.durationSeconds * 1000L,
-                isPlaying = false
-            )
-        }
-        _positionMs.value = 0L
-    }
-
-    private fun appendToQueueIfMissing(item: UpNextItem) {
-        _uiState.update { state ->
-            if (state.upNext.any { it.id == item.id }) {
-                state
-            } else {
-                state.copy(upNext = state.upNext + item)
+    /** Mirror ExoPlayer state into the UI flows. Always runs on the main thread. */
+    private fun syncFromPlayer() {
+        val current = player.currentMediaItem
+        val metadata = current?.mediaMetadata
+        val duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L
+        val upNext = buildList {
+            for (i in player.currentMediaItemIndex + 1 until player.mediaItemCount) {
+                val item = player.getMediaItemAt(i)
+                add(
+                    UpNextItem(
+                        id = item.mediaId,
+                        title = item.mediaMetadata.title?.toString().orEmpty(),
+                        artist = item.mediaMetadata.artist?.toString().orEmpty()
+                    )
+                )
             }
         }
+        _uiState.update {
+            it.copy(
+                trackId = current?.mediaId,
+                trackTitle = metadata?.title?.toString() ?: placeholderTitle,
+                trackArtist = metadata?.artist?.toString() ?: placeholderArtist,
+                artworkModel = metadata?.artworkUri,
+                durationMs = duration,
+                isPlaying = player.isPlaying,
+                isShuffleEnabled = player.shuffleModeEnabled,
+                isLoopEnabled = player.repeatMode != Player.REPEAT_MODE_OFF,
+                upNext = upNext
+            )
+        }
+        _positionMs.value = player.currentPosition
+        if (player.isPlaying) startPositionTicker() else stopPositionTicker()
     }
 
     /**
@@ -477,19 +506,11 @@ class NowPlayingViewModel @Inject constructor(
      * or when the ViewModel is cleared.
      */
     private fun startPositionTicker() {
-        positionTicker?.cancel()
+        if (positionTicker?.isActive == true) return
         positionTicker = viewModelScope.launch {
-            val duration = _uiState.value.durationMs
-            if (duration <= 0L) return@launch
-            while (isActive && _uiState.value.isPlaying) {
+            while (isActive) {
+                _positionMs.value = player.currentPosition
                 delay(POSITION_TICK_MS)
-                val newPosition = _positionMs.value + POSITION_TICK_MS
-                if (newPosition >= duration) {
-                    _positionMs.value = duration
-                    _uiState.update { it.copy(isPlaying = false) }
-                    break
-                }
-                _positionMs.value = newPosition
             }
         }
     }

@@ -83,6 +83,7 @@ import androidx.navigation.navArgument
 import com.futura.R
 import com.futura.alarm.VaultUnlockProof
 import com.futura.audio.ui.components.UniversalMediaScreen
+import com.futura.audio.ui.screens.LibraryScreen
 import com.futura.audio.ui.viewmodel.UniversalMediaViewModel
 import com.futura.ui.screens.AlarmEditorScreen
 import com.futura.ui.screens.AlarmListScreen
@@ -410,9 +411,9 @@ private fun MainNavHost(
             )
         }
         composable(MainRoute.Library.route) {
-            LibraryPlaceholder(
-                onNowPlaying = { navController.navigateSingleTop(MainRoute.NowPlaying) },
-                onMediaHub = { navController.navigateSingleTop(MainRoute.MediaHub) }
+            LibraryScreen(
+                onOpenNowPlaying = { navController.navigateSingleTop(MainRoute.NowPlaying) },
+                onOpenMediaHub = { navController.navigateSingleTop(MainRoute.MediaHub) }
             )
         }
         composable(MainRoute.MediaHub.route) {
@@ -452,32 +453,6 @@ private fun MainNavHost(
 
 private fun NavHostController.navigateSingleTop(route: MainRoute) {
     navigate(route.route) { launchSingleTop = true }
-}
-
-@Composable
-private fun LibraryPlaceholder(onNowPlaying: () -> Unit, onMediaHub: () -> Unit) {
-    // TEMPORARY: replaces ui/screens/LibraryScreen.kt.
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = stringResource(R.string.library_dock_library),
-            color = Color(0xFF00FF66),
-            style = MaterialTheme.typography.headlineLarge
-        )
-        Spacer(Modifier.height(24.dp))
-        Button(onClick = onNowPlaying, modifier = Modifier.fillMaxWidth()) {
-            Text(stringResource(R.string.nowplaying_top_alarm_deck))
-        }
-        Spacer(Modifier.height(12.dp))
-        Button(onClick = onMediaHub, modifier = Modifier.fillMaxWidth()) {
-            Text("Universal Media Hub")
-        }
-    }
 }
 
 @Composable

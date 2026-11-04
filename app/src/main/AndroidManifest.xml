@@ -263,11 +263,11 @@
              (a separate process) to bind. Access is still gated by the
              MediaBrowserService's own session token. -->
         <service
-            android:name=".system.FuturaMediaBrowserService"
+            android:name=".system.FuturaPlaybackService"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>
-                <action android:name="android.media.browse.MediaBrowserService" />
+                <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
 

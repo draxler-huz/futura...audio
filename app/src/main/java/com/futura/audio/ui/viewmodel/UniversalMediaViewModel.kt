@@ -2,6 +2,7 @@ package com.futura.audio.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.futura.audio.data.SavedSourcesStore
 import com.futura.audio.domain.MediaItem
 import com.futura.audio.domain.PipelineCategory
 import com.futura.audio.domain.PlaybackRoute
@@ -17,11 +18,25 @@ import javax.inject.Inject
 
 @HiltViewModel
 class UniversalMediaViewModel @Inject constructor(
-    private val repository: MusicSourceRepository
+    private val repository: MusicSourceRepository,
+    private val store: SavedSourcesStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MediaHubUiState())
     val uiState: StateFlow<MediaHubUiState> = _uiState.asStateFlow()
+
+    init {
+        // Show previously saved sources when the hub opens.
+        viewModelScope.launch {
+            try {
+                _uiState.update { it.copy(items = store.load()) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = e.localizedMessage ?: "Could not load saved sources") }
+            }
+        }
+    }
 
     fun setCategoryFilter(category: PipelineCategory) {
         _uiState.update { it.copy(selectedCategory = category) }
@@ -45,6 +60,9 @@ class UniversalMediaViewModel @Inject constructor(
                         isLoading = false
                     )
                 }
+
+                // Persist everything the hub holds, so the Library sees it.
+                store.save(_uiState.value.items.distinctBy { it.id })
 
                 // Auto-play only the direct items. Web embeds are never sent to ExoPlayer.
                 repository.playDirect(resolvedItems)
