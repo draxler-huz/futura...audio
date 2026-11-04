@@ -95,6 +95,8 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import android.util.Log
 import androidx.lifecycle.lifecycleScope
 import com.futura.audio.playback.IncomingMediaHandler
+import com.futura.audio.playback.PlaybackVideoState
+import com.futura.audio.ui.components.VideoPlayerDialog
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -269,6 +271,9 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var incomingMedia: IncomingMediaHandler
 
+    @Inject
+    lateinit var videoState: PlaybackVideoState
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -288,7 +293,8 @@ class MainActivity : ComponentActivity() {
             FuturaTheme {
                 MainNavHost(
                     pendingRoute = pendingRoute.asStateFlow(),
-                    onFinish = ::finish
+                    onFinish = ::finish,
+                    videoState = videoState
                 )
             }
         }
@@ -311,10 +317,11 @@ class MainActivity : ComponentActivity() {
         val uri = intent?.let { incomingMedia.uriFrom(it) } ?: return
         lifecycleScope.launch {
             try {
-                incomingMedia.play(uri)
+                val isVideo = incomingMedia.play(uri)
+                // Video shows its picture over the app; audio opens Now Playing.
                 // Clear first so a later share still navigates when the value repeats.
                 pendingRoute.value = null
-                pendingRoute.value = MainRoute.NowPlaying
+                if (isVideo) videoState.show() else pendingRoute.value = MainRoute.NowPlaying
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -361,7 +368,8 @@ private fun NavHostController.navigateTab(route: MainRoute) {
 @Composable
 private fun MainNavHost(
     pendingRoute: StateFlow<MainRoute?>,
-    onFinish: () -> Unit
+    onFinish: () -> Unit,
+    videoState: PlaybackVideoState
 ) {
     val navController = rememberNavController()
     val pending by pendingRoute.collectAsStateWithLifecycle()
@@ -538,6 +546,11 @@ private fun MainNavHost(
             }
         }
     }
+    }
+
+    val showVideo by videoState.showVideo.collectAsStateWithLifecycle()
+    if (showVideo) {
+        VideoPlayerDialog(player = videoState.player, onDismiss = videoState::hide)
     }
 }
 

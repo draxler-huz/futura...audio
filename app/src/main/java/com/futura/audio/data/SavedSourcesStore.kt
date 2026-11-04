@@ -66,6 +66,7 @@ class SavedSourcesStore @Inject constructor(
         .put("durationMs", durationMs)
         .put("route", route.name)
         .put("category", category.name)
+        .put("isVideo", isVideo)
 
     private fun JSONObject.toMediaItem(): MediaItem = MediaItem(
         id = getString("id"),
@@ -77,7 +78,8 @@ class SavedSourcesStore @Inject constructor(
         subcategory = getString("subcategory"),
         durationMs = optLong("durationMs", 0L),
         route = PlaybackRoute.valueOf(getString("route")),
-        category = PipelineCategory.valueOf(getString("category"))
+        category = PipelineCategory.valueOf(getString("category")),
+        isVideo = optBoolean("isVideo", false)
     )
 
     private companion object {

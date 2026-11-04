@@ -1,5 +1,10 @@
 package com.futura.audio.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,17 +22,23 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.futura.audio.ui.components.EmbeddedWebViewDialog
 import com.futura.audio.ui.components.GlassmorphicMediaCard
 import com.futura.audio.ui.viewmodel.LibraryViewModel
 
-/** Saved sources from the Media Hub. Tapping a direct source plays it, then opens Now Playing. */
+/**
+ * Saved music and video: files added with the picker, device media, and
+ * sources saved from the Media Hub. Tapping plays it; video shows its picture.
+ */
 @Composable
 fun LibraryScreen(
     onOpenNowPlaying: () -> Unit,
@@ -37,9 +48,26 @@ fun LibraryScreen(
     val savedItems by viewModel.items.collectAsStateWithLifecycle()
     val webUrl by viewModel.activeWebViewUrl.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
+    val scanning by viewModel.scanning.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
-    // Reload each time the screen is shown, so sources added in the hub appear.
+    // Reload each time the screen is shown, so sources added elsewhere appear.
     LaunchedEffect(Unit) { viewModel.refresh() }
+
+    val pickFiles = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris -> if (uris.isNotEmpty()) viewModel.addFiles(uris) }
+
+    val mediaPermissions = remember {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            arrayOf(Manifest.permission.READ_MEDIA_AUDIO, Manifest.permission.READ_MEDIA_VIDEO)
+        } else {
+            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+    }
+    val requestMedia = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result -> if (result.values.any { it }) viewModel.scanDevice() }
 
     Column(
         modifier = Modifier
@@ -58,9 +86,24 @@ fun LibraryScreen(
             OutlinedButton(onClick = onOpenNowPlaying) { Text("Now Playing") }
             OutlinedButton(onClick = onOpenMediaHub) { Text("Media Hub") }
         }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = { pickFiles.launch(arrayOf("audio/*", "video/*", "application/ogg")) }
+            ) { Text("Add files") }
+            OutlinedButton(
+                onClick = {
+                    val granted = mediaPermissions.all {
+                        ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+                    }
+                    if (granted) viewModel.scanDevice() else requestMedia.launch(mediaPermissions)
+                },
+                enabled = !scanning
+            ) { Text(if (scanning) "Scanning..." else "Scan device") }
+        }
         Spacer(Modifier.height(16.dp))
         Text(
-            text = "SAVED SOURCES",
+            text = "SAVED MEDIA",
             color = Color.Gray,
             fontSize = 11.sp,
             letterSpacing = 1.5.sp
@@ -69,7 +112,7 @@ fun LibraryScreen(
 
         if (savedItems.isEmpty()) {
             Text(
-                text = "No saved sources yet. Add a link in the Media Hub.",
+                text = "No media yet. Add files, scan the device, or share a file to Futura from another app.",
                 color = Color.Gray,
                 fontSize = 14.sp
             )

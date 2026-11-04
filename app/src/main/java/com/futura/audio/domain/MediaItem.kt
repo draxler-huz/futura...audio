@@ -18,5 +18,6 @@ data class MediaItem(
     val subcategory: String,     // e.g., "syndication.rss", "metadata.opengraph"
     val durationMs: Long = 0L,
     val route: PlaybackRoute = PlaybackRoute.EXOPLAYER_DIRECT,
-    val category: PipelineCategory = PipelineCategory.COMPLIANT_STANDARD  // UI filter and accent color
+    val category: PipelineCategory = PipelineCategory.COMPLIANT_STANDARD,  // UI filter and accent color
+    val isVideo: Boolean = false                                            // played with a picture
 )

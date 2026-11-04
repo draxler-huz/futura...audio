@@ -56,6 +56,7 @@
 
     <!-- Media library access (granular on API 33+, legacy fallback below) -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
@@ -200,11 +201,14 @@
                 <data android:scheme="file" android:mimeType="audio/*" />
                 <data android:scheme="content" android:mimeType="application/ogg" />
                 <data android:scheme="file" android:mimeType="application/ogg" />
+                <data android:scheme="content" android:mimeType="video/*" />
+                <data android:scheme="file" android:mimeType="video/*" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="audio/*" />
+                <data android:mimeType="video/*" />
             </intent-filter>
         </activity>
 

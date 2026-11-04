@@ -15,9 +15,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Plays audio opened or shared from another app (Xender, a file manager, a
- * browser). Only audio content is accepted; anything else is ignored.
- * The file is added to the Library so it can be played again.
+ * Turns audio and video files into library entries and plays them. Used for
+ * files shared from other apps (Xender, file managers) and for files the user
+ * picks in the Library. Anything that is not audio or video is ignored.
  */
 @Singleton
 class IncomingMediaHandler @Inject constructor(
@@ -26,35 +26,62 @@ class IncomingMediaHandler @Inject constructor(
     private val store: SavedSourcesStore
 ) {
 
-    /** The audio URI carried by a VIEW or SEND intent, or null if there is none. */
+    /** The media URI carried by a VIEW or SEND intent, or null if there is none. */
     fun uriFrom(intent: Intent): Uri? {
         return when (intent.action) {
-            Intent.ACTION_VIEW -> intent.data?.takeIf { isAudio(intent.type, it) }
+            Intent.ACTION_VIEW -> intent.data?.takeIf { isMedia(intent.type, it) }
             Intent.ACTION_SEND -> {
                 val type = intent.type
-                if (type != null && isAudioType(type)) streamExtra(intent) else null
+                if (type != null && isMediaType(type)) streamExtra(intent) else null
             }
             else -> null
         }
     }
 
-    /** Saves the file to the Library, then plays it through ExoPlayer on the main thread. */
-    suspend fun play(uri: Uri) {
-        val item = MediaItem(
+    /** A library entry for [uri]. Video is detected from the provider's type or the file extension. */
+    fun itemFor(uri: Uri): MediaItem {
+        val video = isVideo(contentType(uri), uri)
+        return MediaItem(
             id = uri.toString(),
-            title = displayName(uri)?.substringBeforeLast('.') ?: "Shared audio",
+            title = displayName(uri)?.substringBeforeLast('.')?.takeIf { it.isNotBlank() } ?: "Local media",
             artist = null,
             streamUrl = uri.toString(),
             artworkUrl = null,
-            sourceName = "Shared file",
-            subcategory = "shared.local",
+            sourceName = "Local file",
+            subcategory = "local.file",
             route = PlaybackRoute.EXOPLAYER_DIRECT,
-            category = PipelineCategory.COMPLIANT_STANDARD
+            category = PipelineCategory.COMPLIANT_STANDARD,
+            isVideo = video
         )
+    }
+
+    /**
+     * Saves [uri] to the Library and starts playback through ExoPlayer.
+     * Returns true when the file is video, so the caller can show the picture.
+     */
+    suspend fun play(uri: Uri): Boolean {
+        val item = itemFor(uri)
         persistReadAccess(uri)
-        val existing = store.load().filterNot { it.id == item.id }
-        store.save(listOf(item) + existing)
+        addToLibrary(listOf(item))
         repository.playDirect(listOf(item))
+        return item.isVideo
+    }
+
+    /** Adds [items] to the Library, newest first, replacing any entry with the same id. */
+    suspend fun addToLibrary(items: List<MediaItem>) {
+        val ids = items.map { it.id }.toSet()
+        val existing = store.load().filterNot { it.id in ids }
+        store.save(items + existing)
+    }
+
+    /** Keeps read access across restarts where the provider allows it. */
+    fun persistReadAccess(uri: Uri) {
+        if (uri.scheme != "content") return
+        try {
+            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (e: SecurityException) {
+            // The sender gave no persistable permission; access lasts for this session only.
+        }
     }
 
     private fun streamExtra(intent: Intent): Uri? =
@@ -65,40 +92,44 @@ class IncomingMediaHandler @Inject constructor(
             intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
         }
 
-    private fun isAudio(type: String?, uri: Uri): Boolean {
-        if (type != null && isAudioType(type)) return true
-        val ext = uri.lastPathSegment?.substringAfterLast('.', "")?.lowercase() ?: return false
-        return ext in AUDIO_EXTENSIONS
+    private fun isMedia(type: String?, uri: Uri): Boolean {
+        if (type != null && isMediaType(type)) return true
+        return extension(uri) in MEDIA_EXTENSIONS
     }
 
-    private fun isAudioType(type: String): Boolean =
-        type.startsWith("audio/") || type == "application/ogg"
+    private fun isMediaType(type: String): Boolean =
+        type.startsWith("audio/") || type.startsWith("video/") || type == "application/ogg"
+
+    private fun isVideo(type: String?, uri: Uri): Boolean {
+        if (type != null) return type.startsWith("video/")
+        return extension(uri) in VIDEO_EXTENSIONS
+    }
+
+    private fun extension(uri: Uri): String =
+        uri.lastPathSegment?.substringAfterLast('.', "")?.lowercase().orEmpty()
+
+    private fun contentType(uri: Uri): String? =
+        try {
+            context.contentResolver.getType(uri)
+        } catch (e: SecurityException) {
+            null
+        }
 
     private fun displayName(uri: Uri): String? {
         if (uri.scheme != "content") return uri.lastPathSegment
         return try {
             context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
-                ?.use { cursor ->
-                    if (cursor.moveToFirst()) cursor.getString(0) else null
-                }
+                ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
         } catch (e: SecurityException) {
             null
         }
     }
 
-    /** Keeps read access across restarts where the provider allows it; otherwise playback ends with the share. */
-    private fun persistReadAccess(uri: Uri) {
-        if (uri.scheme != "content") return
-        try {
-            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        } catch (e: SecurityException) {
-            // The sender did not grant a persistable permission; read access lasts for this session only.
-        }
-    }
-
     private companion object {
+        val VIDEO_EXTENSIONS = setOf("mp4", "m4v", "mkv", "webm", "mov", "3gp", "ts", "m2ts")
         val AUDIO_EXTENSIONS = setOf(
-            "mp3", "m4a", "aac", "ogg", "oga", "opus", "flac", "wav", "amr", "3gp", "mka"
+            "mp3", "m4a", "aac", "ogg", "oga", "opus", "flac", "wav", "amr", "mka"
         )
+        val MEDIA_EXTENSIONS = AUDIO_EXTENSIONS + VIDEO_EXTENSIONS
     }
 }
