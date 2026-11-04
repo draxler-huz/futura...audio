@@ -82,6 +82,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.futura.R
 import com.futura.alarm.VaultUnlockProof
+import com.futura.audio.ui.components.UniversalMediaScreen
+import com.futura.audio.ui.viewmodel.UniversalMediaViewModel
 import com.futura.ui.screens.AlarmEditorScreen
 import com.futura.ui.screens.AlarmListScreen
 import com.futura.ui.screens.LoadingScreen
@@ -137,6 +139,9 @@ enum class MainRoute(val route: String) {
 
     /** Phase 3 — Library browser (LibraryScreen). */
     Library("library"),
+
+    /** Universal Media Hub: Category 1 sources, cover flow, web embeds. */
+    MediaHub("media_hub"),
 
     /** Phase 4 — DJ Studio (DjStudioScreen). */
     DjStudio("dj_studio"),
@@ -215,6 +220,7 @@ enum class MainRoute(val route: String) {
                 "wakeup", "alarm" -> WakeUpOverlay
                 "now_playing", "nowplaying" -> NowPlaying
                 "library" -> Library
+                "hub", "media", "media_hub" -> MediaHub
                 "dj", "dj_studio" -> DjStudio
                 "visualizer" -> VisualizerDeck
                 "car", "car_mode" -> CarMode
@@ -405,8 +411,13 @@ private fun MainNavHost(
         }
         composable(MainRoute.Library.route) {
             LibraryPlaceholder(
-                onNowPlaying = { navController.navigateSingleTop(MainRoute.NowPlaying) }
+                onNowPlaying = { navController.navigateSingleTop(MainRoute.NowPlaying) },
+                onMediaHub = { navController.navigateSingleTop(MainRoute.MediaHub) }
             )
+        }
+        composable(MainRoute.MediaHub.route) {
+            val vm: UniversalMediaViewModel = hiltViewModel()
+            UniversalMediaScreen(viewModel = vm)
         }
         composable(MainRoute.DjStudio.route) {
             DjStudioPlaceholder(
@@ -441,7 +452,7 @@ private fun NavHostController.navigateSingleTop(route: MainRoute) {
 }
 
 @Composable
-private fun LibraryPlaceholder(onNowPlaying: () -> Unit) {
+private fun LibraryPlaceholder(onNowPlaying: () -> Unit, onMediaHub: () -> Unit) {
     // TEMPORARY: replaces ui/screens/LibraryScreen.kt.
     Column(
         modifier = Modifier
@@ -458,6 +469,10 @@ private fun LibraryPlaceholder(onNowPlaying: () -> Unit) {
         Spacer(Modifier.height(24.dp))
         Button(onClick = onNowPlaying, modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.nowplaying_top_alarm_deck))
+        }
+        Spacer(Modifier.height(12.dp))
+        Button(onClick = onMediaHub, modifier = Modifier.fillMaxWidth()) {
+            Text("Universal Media Hub")
         }
     }
 }
