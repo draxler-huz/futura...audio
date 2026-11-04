@@ -44,6 +44,8 @@ package com.futura.ui
 
 import android.content.Intent
 import android.os.Bundle
+import android.provider.Settings
+import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -377,7 +379,8 @@ private fun MainNavHost(
         composable(MainRoute.AlarmList.route) {
             val vm: AlarmListViewModel = hiltViewModel()
             val alarms by vm.alarms.collectAsStateWithLifecycle()
-            val activity = LocalContext.current.findFragmentActivity()
+            val context = LocalContext.current
+            val activity = context.findFragmentActivity()
             AlarmListScreen(
                 alarms = alarms,
                 onAdd = { navController.navigate(alarmEditorRoute(null)) },
@@ -385,7 +388,15 @@ private fun MainNavHost(
                 onToggle = { spec, on, proof -> vm.setEnabled(spec, on, proof) },
                 onDelete = { spec, proof -> vm.delete(spec, proof) },
                 requireAuth = { granted -> activity?.let { vm.authorize(it, granted) } },
-                onOpenVault = { navController.navigate(MainRoute.VaultSecurity.route) }
+                onOpenVault = { navController.navigate(MainRoute.VaultSecurity.route) },
+                exactAlarmsAllowed = vm.canScheduleExact(),
+                onAllowExactAlarms = {
+                    val intent = Intent(
+                        Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                        Uri.parse("package:" + context.packageName)
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(intent)
+                }
             )
         }
         composable(

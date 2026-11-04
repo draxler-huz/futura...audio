@@ -24,6 +24,7 @@ import kotlinx.coroutines.launch
 class AlarmReceiver : BroadcastReceiver() {
 
     @Inject lateinit var coordinator: AlarmCoordinator
+    @Inject lateinit var serviceController: AlarmServiceController
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -45,6 +46,9 @@ class AlarmReceiver : BroadcastReceiver() {
                     scope.launch {
                         try {
                             coordinator.onAlarmFired(specId)
+                            // Starting the service attaches the session orchestrator, which
+                            // starts the tone and the escalation. Nothing else starts it.
+                            serviceController.start()
                         } catch (e: Exception) {
                             Log.e(TAG, "Alarm fire dispatch failed", e)
                         } finally {

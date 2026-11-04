@@ -64,6 +64,8 @@ fun AlarmListScreen(
     onDelete: (AlarmSpec, VaultUnlockProof?) -> Unit,
     requireAuth: ((VaultUnlockProof) -> Unit) -> Unit,
     onOpenVault: () -> Unit,
+    exactAlarmsAllowed: Boolean = true,
+    onAllowExactAlarms: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var filter by remember { mutableStateOf(AlarmFilter.ALL) }
@@ -98,6 +100,10 @@ fun AlarmListScreen(
                 hasAlarms = alarms.isNotEmpty(),
                 onOpenVault = onOpenVault
             )
+
+            if (!exactAlarmsAllowed) {
+                ExactAlarmBanner(onAllow = onAllowExactAlarms)
+            }
 
             if (alarms.isNotEmpty()) {
                 FilterRow(selected = filter, onSelect = { filter = it })
@@ -231,6 +237,43 @@ private fun TopBar(nextAlarm: AlarmSpec?, hasAlarms: Boolean, onOpenVault: () ->
                     fontWeight = FontWeight.Medium
                 )
             }
+        }
+    }
+}
+
+/** Shown until exact alarms are allowed; without it alarms can fire late or not at all. */
+@Composable
+private fun ExactAlarmBanner(onAllow: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(FuturaColors.Amber.copy(alpha = 0.1f))
+            .border(1.dp, FuturaColors.Amber.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "Alarms can't ring on time",
+            color = FuturaColors.Amber,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Allow exact alarms for Futura so alarms fire at the set time.",
+            color = FuturaColors.TextSecondary,
+            fontSize = 12.sp
+        )
+        Spacer(Modifier.height(10.dp))
+        Button(
+            onClick = onAllow,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = FuturaColors.Amber,
+                contentColor = FuturaColors.OLEDBlack
+            )
+        ) {
+            Text("Allow exact alarms")
         }
     }
 }

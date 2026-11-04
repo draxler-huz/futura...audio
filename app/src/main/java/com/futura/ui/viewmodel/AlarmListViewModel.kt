@@ -32,6 +32,9 @@ class AlarmListViewModel @Inject constructor(
         .map { list -> list.sortedWith(compareBy({ it.hour }, { it.minute })) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** False on Android 12+ until the user grants exact alarms in system settings. */
+    fun canScheduleExact(): Boolean = scheduler.canScheduleExact()
+
     /** Runs the biometric gate for a shielded change. */
     fun authorize(activity: FragmentActivity, onGranted: (VaultUnlockProof) -> Unit) {
         shieldGate.authorize(activity, viewModelScope, onGranted)
