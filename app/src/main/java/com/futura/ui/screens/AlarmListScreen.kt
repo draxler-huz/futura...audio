@@ -164,7 +164,7 @@ private fun TopBar(nextAlarm: AlarmSpec?, hasAlarms: Boolean, onOpenVault: () ->
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(horizontal = 20.dp, top = 12.dp, bottom = 18.dp),
+            .padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 18.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
