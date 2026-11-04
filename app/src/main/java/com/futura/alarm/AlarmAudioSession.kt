@@ -169,18 +169,7 @@ class AlarmAudioSession @Inject constructor(
         }
     }
 
-    private suspend fun stop() {
-        sync.stop()          // cancels the loop and sends 0f to the sink
-        // The 0f is only written to the DSP on the next coalescer tick. Give
-        // that tick time to run before the chain is disabled.
-        delay(FLUSH_GRACE_MS)
-        ramp.stop()
-        NativePlayerBridge.stop()
-        NativePlayerBridge.destroy()
-        dsp.stop()
-        sync.nativeGainSink = null
-        Log.i(tag, "Audio session stopped")
-    }
+
 
     private companion object {
         /** Longer than the coalescer's 10 ms flush interval. */
