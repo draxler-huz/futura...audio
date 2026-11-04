@@ -50,7 +50,7 @@ import kotlinx.coroutines.launch
 class FuturaAlarmService : Service() {
 
     @Inject lateinit var coordinator: AlarmCoordinator
-    @Inject lateinit var watchdog: MissedAlarmWatchdog
+    @Inject lateinit var orchestrator: AlarmSessionOrchestrator
     @Inject lateinit var audioSession: AlarmAudioSession
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -59,18 +59,7 @@ class FuturaAlarmService : Service() {
     override fun onCreate() {
         super.onCreate()
         audioSession.attach()
-        // The watchdog's wake lease follows the alarm lifecycle: armed on
-        // Firing, released on Snoozed or Dismissed.
-        scope.launch {
-            coordinator.events.collect { event ->
-                when (event) {
-                    is AlarmCoordinator.AlarmEvent.Firing -> watchdog.arm(event.specId)
-                    is AlarmCoordinator.AlarmEvent.Snoozed,
-                    is AlarmCoordinator.AlarmEvent.Dismissed -> watchdog.disarm()
-                    else -> Unit
-                }
-            }
-        }
+        orchestrator.attach()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -86,10 +75,8 @@ class FuturaAlarmService : Service() {
                 false
             }
             if (hasSession) {
-                // A restored FIRING session needs its lease again.
-                coordinator.session.value
-                    ?.takeIf { it.phase == AlarmCoordinator.Phase.FIRING }
-                    ?.let { watchdog.arm(it.specId) }
+                // The orchestrator observes the restored state and arms
+                // missed-alarm escalation; the native session resumes here.
                 audioSession.resumeIfFiring()
                 startWatchdog()
             } else {

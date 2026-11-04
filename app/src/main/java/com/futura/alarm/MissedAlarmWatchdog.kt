@@ -31,8 +31,9 @@ import kotlinx.coroutines.sync.withLock
  *     never lapses while the alarm is active. This covers every tier,
  *     including SIREN, which stops changing stage. A stage-change-only
  *     renewal would let the lease expire at SIREN.
- *   • Escalation starts once [MISSED_TIMEOUT_MS] has passed and advances one
- *     stage per tick, holding at SIREN.
+ *   • GENTLE is the baseline during the missed timeout. VOICE begins after
+ *     that grace period plus one stage interval; later stages advance every
+ *     [STAGE_INTERVAL_MS] (10:30, 11:00, 11:30, then 12:00 with current values).
  *   • Safety cap: once [MAX_SESSION_MS] has passed since [arm], the watchdog
  *     auto-dismisses the session, writes an audit log entry, and releases the
  *     lease. This bounds battery drain if the alarm is abandoned.
@@ -91,8 +92,9 @@ class MissedAlarmWatchdog @Inject constructor(
                             return@launch
                         }
 
-                        // Escalate once the initial window has passed.
-                        if (elapsed >= MISSED_TIMEOUT_MS) {
+                        // Keep GENTLE through the 10-minute grace period,
+                        // then advance once per stage interval.
+                        if (elapsed >= MISSED_TIMEOUT_MS + STAGE_INTERVAL_MS) {
                             val next = _currentStage.value.next()
                             _currentStage.value = next
                             _stageEvents.tryEmit(next)

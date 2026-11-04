@@ -17,7 +17,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -37,11 +40,15 @@ class AlarmAudioSession @Inject constructor(
     private val ramp: CircadianRampModule,
     private val sync: CircadianAudioSync,
     private val dsp: DspChainController,
+    private val audioFocus: AudioFocusStealer,
+    private val vibration: VibrationPatternSynthesizer,
     @ApplicationContext private val context: Context,
 ) {
     private val tag = "AlarmAudioSession"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val lifecycleMutex = Mutex()
     private var collector: Job? = null
+    private var activeSpecId: String? = null
 
     /** Subscribe to the coordinator's events. Safe to call more than once. */
     fun attach() {
@@ -66,23 +73,73 @@ class AlarmAudioSession @Inject constructor(
         if (session.phase == AlarmCoordinator.Phase.FIRING) start(session.spec)
     }
 
-    private suspend fun start(spec: AlarmSpec) {
-        val now = System.currentTimeMillis()
-        val plan = CircadianRampModule.RampPlan(
-            startMs = now,
-            endMs = now + spec.rampDurationSeconds.coerceAtLeast(1) * 1000L,
-            aggression = spec.rampProfile
-        )
-        // The sink must be set before the loop starts, or its gain is dropped.
-        sync.nativeGainSink = { gain -> dsp.setCircadianLinear(gain) }
-        dsp.start()
-        if (!dsp.enableChain()) {
-            Log.w(tag, "DSP chain did not enable; the ramp runs without the DSP")
+    private suspend fun start(spec: AlarmSpec) = lifecycleMutex.withLock {
+        if (activeSpecId == spec.id) return@withLock
+        if (activeSpecId != null) stopLocked()
+        activeSpecId = spec.id
+
+        try {
+            // Keep the native player; add focus and gentle haptics around it.
+            // The watchdog already owns the wake lease for the active alarm.
+            if (!audioFocus.acquire()) {
+                Log.w(tag, "Audio focus denied; continuing with alarm")
+            }
+
+            val now = System.currentTimeMillis()
+            val plan = CircadianRampModule.RampPlan(
+                startMs = now,
+                endMs = now + spec.rampDurationSeconds.coerceAtLeast(1) * 1000L,
+                aggression = spec.rampProfile
+            )
+            sync.nativeGainSink = { gain -> dsp.setCircadianLinear(gain) }
+            dsp.start()
+            if (!dsp.enableChain()) {
+                Log.w(tag, "DSP chain did not enable; the ramp runs without the DSP")
+            }
+            ramp.start(plan)
+            sync.start()
+            startTone()
+            vibration.start(EscalationStage.GENTLE)
+            Log.i(tag, "Audio session started for " + spec.id)
+        } catch (e: CancellationException) {
+            stopLocked()
+            throw e
+        } catch (e: Exception) {
+            Log.e(tag, "Audio session start failed for " + spec.id, e)
+            stopLocked()
         }
-        ramp.start(plan)
-        sync.start()
-        startTone()
-        Log.i(tag, "Audio session started for ${spec.id}")
+    }
+
+    /** Stop native playback, ramp, haptics, and audio focus. Idempotent. */
+    private suspend fun stop() = lifecycleMutex.withLock { stopLocked() }
+
+    private suspend fun stopLocked() {
+        if (activeSpecId == null) return
+        try { sync.stop() } catch (e: Exception) {
+            Log.w(tag, "sync stop failed", e)
+        }
+        try { delay(FLUSH_GRACE_MS) } catch (_: Exception) {}
+        try { ramp.stop() } catch (e: Exception) {
+            Log.w(tag, "ramp stop failed", e)
+        }
+        try { NativePlayerBridge.stop() } catch (e: Exception) {
+            Log.w(tag, "native player stop failed", e)
+        }
+        try { NativePlayerBridge.destroy() } catch (e: Exception) {
+            Log.w(tag, "native player destroy failed", e)
+        }
+        try { dsp.stop() } catch (e: Exception) {
+            Log.w(tag, "DSP stop failed", e)
+        }
+        sync.nativeGainSink = null
+        try { vibration.stop() } catch (e: Exception) {
+            Log.w(tag, "vibration stop failed", e)
+        }
+        try { audioFocus.release() } catch (e: Exception) {
+            Log.w(tag, "audio focus release failed", e)
+        }
+        activeSpecId = null
+        Log.i(tag, "Audio session stopped")
     }
 
     /**
