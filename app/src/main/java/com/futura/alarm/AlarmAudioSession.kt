@@ -1,6 +1,13 @@
 package com.futura.alarm
 
+import android.content.Context
+import android.media.AudioManager
 import android.util.Log
+import com.futura.engine.NativePlayerBridge
+import com.futura.engine.SourceType
+import com.futura.tone.AlarmToneGenerator
+import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
 import com.futura.engine.DspChainController
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -11,6 +18,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Runs the audio side of an alarm session. The circadian ramp drives the
@@ -28,7 +36,8 @@ class AlarmAudioSession @Inject constructor(
     private val coordinator: AlarmCoordinator,
     private val ramp: CircadianRampModule,
     private val sync: CircadianAudioSync,
-    private val dsp: DspChainController
+    private val dsp: DspChainController,
+    @ApplicationContext private val context: Context,
 ) {
     private val tag = "AlarmAudioSession"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -72,7 +81,35 @@ class AlarmAudioSession @Inject constructor(
         }
         ramp.start(plan)
         sync.start()
+        startTone()
         Log.i(tag, "Audio session started for ${spec.id}")
+    }
+
+    /**
+     * Stage 1 alarm sound: the bundled tone, played by the native engine.
+     * The tone file is generated on first use, on an IO thread. Each alarm
+     * starts from a fresh native player, so a previous session cannot leak.
+     */
+    private suspend fun startTone() {
+        // Render at the device's output rate, so the native stream needs no resampling.
+        val rate = context.getSystemService(AudioManager::class.java)
+            ?.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)
+            ?.toIntOrNull() ?: 48_000
+        val tone = withContext(Dispatchers.IO) {
+            AlarmToneGenerator.ensureTone(File(context.filesDir, "tones"), rate)
+        }
+        NativePlayerBridge.destroy()
+        if (!NativePlayerBridge.create()) {
+            Log.w(tag, "native player create failed: ${NativePlayerBridge.getLastError()}")
+            return
+        }
+        if (!NativePlayerBridge.prepare(tone.absolutePath, SourceType.FILE)) {
+            Log.w(tag, "tone prepare failed: ${NativePlayerBridge.getLastError()}")
+            return
+        }
+        if (!NativePlayerBridge.play()) {
+            Log.w(tag, "tone play failed: ${NativePlayerBridge.getLastError()}")
+        }
     }
 
     private suspend fun stop() {
@@ -81,6 +118,8 @@ class AlarmAudioSession @Inject constructor(
         // that tick time to run before the chain is disabled.
         delay(FLUSH_GRACE_MS)
         ramp.stop()
+        NativePlayerBridge.stop()
+        NativePlayerBridge.destroy()
         dsp.stop()
         sync.nativeGainSink = null
         Log.i(tag, "Audio session stopped")

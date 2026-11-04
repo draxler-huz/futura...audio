@@ -6,6 +6,9 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <cstring>
+#include <memory>
+#include "core/Engine.h"
 
 namespace {
 
@@ -45,6 +48,10 @@ struct PlayerState {
 };
 
 PlayerState g_state;
+
+// The real engine. Transport and source calls go here; the other
+// player controls below still use g_state until they are routed.
+std::unique_ptr<futura::engine::Engine> g_engine;
 std::mutex g_mutex;
 
 bool readyLocked() {
@@ -82,6 +89,14 @@ std::string readString(JNIEnv* env, jstring value) {
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_futura_engine_NativePlayerBridge_nativeCreate(JNIEnv*, jobject) {
     std::lock_guard<std::mutex> lock(g_mutex);
+    futura::engine::EngineConfig config;
+    config.preferred_sample_rate = 0;  // device native rate; the tone is rendered at that rate
+    g_engine = std::make_unique<futura::engine::Engine>();
+    if (!g_engine->initialize(config)) {
+        g_state.lastError = g_engine->getLastError();
+        g_engine.reset();
+        return JNI_FALSE;
+    }
     g_state.created = true;
     g_state.lastError.clear();
     return JNI_TRUE;
@@ -90,14 +105,18 @@ Java_com_futura_engine_NativePlayerBridge_nativeCreate(JNIEnv*, jobject) {
 extern "C" JNIEXPORT void JNICALL
 Java_com_futura_engine_NativePlayerBridge_nativeDestroy(JNIEnv*, jobject) {
     std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_engine) {
+        g_engine->shutdown();
+        g_engine.reset();
+    }
     g_state = PlayerState{};
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_futura_engine_NativePlayerBridge_nativePrepare(
-    JNIEnv* env, jobject, jstring uri, jint) {
+    JNIEnv* env, jobject, jstring uri, jint sourceType) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    if (!g_state.created) {
+    if (!g_state.created || !g_engine) {
         setErrorLocked("player is not created");
         return JNI_FALSE;
     }
@@ -110,17 +129,26 @@ Java_com_futura_engine_NativePlayerBridge_nativePrepare(
     g_state.playing = false;
     g_state.positionMs = 0;
     g_state.durationMs = -1;
-    g_state.playbackState = 6;
-    g_state.streamState = kStreamStopped;
-    g_state.sourceFormat.clear();
-    g_state.lastError = "decoder backend unavailable";
-    return JNI_FALSE;
+    const bool ok = g_engine->prepareSource(g_state.sourceUri, static_cast<int>(sourceType));
+    g_state.prepared = ok;
+    if (ok) {
+        g_state.durationMs = g_engine->getDurationMs();
+        g_state.sourceFormat = g_engine->getSourceFormat();
+        g_state.playbackState = kStateReady;
+        g_state.streamState = kStreamStopped;
+        g_state.lastError.clear();
+    } else {
+        g_state.lastError = g_engine->getLastError();
+        g_state.playbackState = 6;  // ERROR
+    }
+    return ok ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_futura_engine_NativePlayerBridge_nativeReset(JNIEnv*, jobject) {
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_state.created) return;
+    if (g_engine) g_engine->reset();
     g_state.prepared = false;
     g_state.playing = false;
     g_state.positionMs = 0;
@@ -134,38 +162,43 @@ Java_com_futura_engine_NativePlayerBridge_nativeReset(JNIEnv*, jobject) {
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_futura_engine_NativePlayerBridge_nativeIsPrepared(JNIEnv*, jobject) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    return readyLocked() ? JNI_TRUE : JNI_FALSE;
+    return (g_engine && g_engine->isPrepared()) ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_futura_engine_NativePlayerBridge_nativePlay(JNIEnv*, jobject) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    if (!readyLocked()) return JNI_FALSE;
+    if (!readyLocked() || !g_engine) return JNI_FALSE;
+    if (!g_engine->play()) {
+        g_state.lastError = g_engine->getLastError();
+        return JNI_FALSE;
+    }
     g_state.playing = true;
-    g_state.playbackState = kStatePlaying;
-    g_state.streamState = kStreamStarted;
     return JNI_TRUE;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_futura_engine_NativePlayerBridge_nativePause(JNIEnv*, jobject) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    if (!readyLocked()) return JNI_FALSE;
-    g_state.playing = false;
-    g_state.playbackState = kStatePaused;
-    g_state.streamState = kStreamPaused;
-    return JNI_TRUE;
+    if (!readyLocked() || !g_engine) return JNI_FALSE;
+    const bool ok = g_engine->pause();
+    if (ok) g_state.playing = false;
+    else g_state.lastError = g_engine->getLastError();
+    return ok ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_futura_engine_NativePlayerBridge_nativeStop(JNIEnv*, jobject) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    if (!readyLocked()) return JNI_FALSE;
-    g_state.playing = false;
-    g_state.positionMs = 0;
-    g_state.playbackState = kStateReady;
-    g_state.streamState = kStreamStopped;
-    return JNI_TRUE;
+    if (!readyLocked() || !g_engine) return JNI_FALSE;
+    const bool ok = g_engine->stop();
+    if (ok) {
+        g_state.playing = false;
+        g_state.positionMs = 0;
+    } else {
+        g_state.lastError = g_engine->getLastError();
+    }
+    return ok ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
@@ -182,31 +215,31 @@ Java_com_futura_engine_NativePlayerBridge_nativeSeekTo(JNIEnv*, jobject, jlong p
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_futura_engine_NativePlayerBridge_nativeIsPlaying(JNIEnv*, jobject) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    return g_state.playing ? JNI_TRUE : JNI_FALSE;
+    return (g_engine && g_engine->isPlaying()) ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_futura_engine_NativePlayerBridge_nativeGetPositionMs(JNIEnv*, jobject) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    return g_state.positionMs;
+    return g_engine ? static_cast<jlong>(g_engine->getPositionMs()) : 0;
 }
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_futura_engine_NativePlayerBridge_nativeGetDurationMs(JNIEnv*, jobject) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    return g_state.durationMs;
+    return g_engine ? static_cast<jlong>(g_engine->getDurationMs()) : -1;
 }
 
 extern "C" JNIEXPORT jint JNICALL
 Java_com_futura_engine_NativePlayerBridge_nativeGetPlaybackState(JNIEnv*, jobject) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    return g_state.playbackState;
+    return g_engine ? static_cast<jint>(g_engine->getPlaybackState()) : g_state.playbackState;
 }
 
 extern "C" JNIEXPORT jint JNICALL
 Java_com_futura_engine_NativePlayerBridge_nativeGetStreamState(JNIEnv*, jobject) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    return g_state.streamState;
+    return g_engine ? static_cast<jint>(g_engine->getStreamState()) : g_state.streamState;
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -388,7 +421,7 @@ Java_com_futura_engine_NativePlayerBridge_nativeIsSilenceTrimEnabled(JNIEnv*, jo
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_futura_engine_NativePlayerBridge_nativeGetLastError(JNIEnv* env, jobject) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    return newString(env, g_state.lastError);
+    return newString(env, g_engine ? g_engine->getLastError() : g_state.lastError);
 }
 
 extern "C" JNIEXPORT void JNICALL

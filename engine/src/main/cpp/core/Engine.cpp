@@ -66,6 +66,12 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <chrono>
+#include <fstream>
+#include <thread>
+#include <vector>
+#include "audio/pcm_parser.h"
+#include "core/LockFreeRingBuffer.h"
 
 namespace futura::engine {
 
@@ -124,6 +130,21 @@ namespace StreamState {
 // All atomics use std::memory_order_relaxed except where a genuine
 // happens-before ordering matters (e.g., gapless_queued is
 // release/acquire so the control thread sees a fully-written URI).
+
+namespace {
+
+// Reads a whole file into `out`. Control thread only; never called from the audio thread.
+bool readWholeFile(const std::string& path, std::vector<uint8_t>& out) {
+    std::ifstream in(path, std::ios::binary | std::ios::ate);
+    if (!in) return false;
+    const std::streamsize size = in.tellg();
+    if (size <= 0) return false;
+    out.resize(static_cast<size_t>(size));
+    in.seekg(0, std::ios::beg);
+    return static_cast<bool>(in.read(reinterpret_cast<char*>(out.data()), size));
+}
+
+}  // namespace
 
 struct Engine::Impl {
 
@@ -187,6 +208,60 @@ struct Engine::Impl {
     // ── Source format string (mutex-guarded; const getter) ─────────────
     mutable std::mutex source_mutex;
     std::string        source_format;
+
+    // ── Stage 1 playback: WAV source → feeder thread → output ring ──────
+    // The feeder runs only while playing. Pause and stop join it, so the
+    // ring and the streamer have one owner whenever either is changed.
+    static constexpr size_t kRingFrames     = 16384;
+    static constexpr size_t kOutputChannels = 2;
+
+    std::vector<uint8_t>                                             source_bytes;   // control thread only
+    futura::audio::WavPcmStreamer                                    streamer;       // feeder while playing
+    std::unique_ptr<futura::engine::core::LockFreeRingBuffer<float>> ring;           // created in initialize()
+    std::thread                                                      feeder;
+    std::atomic<bool>                                                feeder_running{false};
+    std::atomic<bool>                                                looping{false};
+    std::atomic<int64_t>                                             loop_length_frames{0};
+
+    void startFeeder() {
+        if (feeder_running.exchange(true, std::memory_order_acq_rel)) return;
+        feeder = std::thread([this] { feederLoop(); });
+    }
+
+    void stopFeeder() {
+        feeder_running.store(false, std::memory_order_release);
+        if (feeder.joinable()) feeder.join();
+    }
+
+    ~Impl() { stopFeeder(); }
+
+    // Moves frames from the streamer into the ring, keeping it topped up.
+    // The file is 16-bit PCM; mono is duplicated to stereo to match the ring.
+    void feederLoop() {
+        constexpr size_t kChunk = 512;
+        float src[kChunk * 2];
+        float stereo[kChunk * 2];
+        while (feeder_running.load(std::memory_order_acquire)) {
+            if (!ring || ring->getFramesFree() < kChunk) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                continue;
+            }
+            const size_t got = streamer.readFloat(src, kChunk);
+            if (got == 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                continue;
+            }
+            if (streamer.format().channels == 1) {
+                for (size_t i = 0; i < got; ++i) {
+                    stereo[2 * i]     = src[i];
+                    stereo[2 * i + 1] = src[i];
+                }
+            } else {
+                std::memcpy(stereo, src, got * 2 * sizeof(float));
+            }
+            ring->write(stereo, got);
+        }
+    }
 };
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -216,6 +291,8 @@ bool Engine::initialize(const EngineConfig& config) {
     }
 
     impl_->config = config;
+    impl_->ring = std::make_unique<futura::engine::core::LockFreeRingBuffer<float>>(
+        Impl::kRingFrames, Impl::kOutputChannels);
     impl_->stream_state.store(StreamState::OPENING, std::memory_order_relaxed);
 
     // Translate EngineConfig → AudioOutputConfig.
@@ -285,18 +362,15 @@ bool Engine::isInitialized() const noexcept {
 // ═════════════════════════════════════════════════════════════════════════
 
 bool Engine::prepareSource(const std::string& uri, int source_type) {
-    if (!impl_ || !impl_->audio_output) return false;
+    if (!impl_ || !impl_->audio_output || !impl_->ring) return false;
 
-    // GROWTH: when FFmpegDecoderContext.h / FlacNativeDecoder.h are
-    // delivered, this method will:
-    //   1. Open the file at `uri` via the appropriate decoder.
-    //   2. Read the header to populate source_sample_rate, source_channels,
-    //      source_bit_depth, and source_format.
-    //   3. Pre-buffer audio into LockFreeRingBuffer (via ZeroAllocRenderLoop).
-    //   4. Populate duration_ms from the decoder's reported duration.
-    //
-    // For now: populate placeholder metadata so the UI has something to
-    // display and the transport methods function.
+    // The feeder and the stream must be idle before the ring and the streamer
+    // change. Both are control-thread operations, so this order is safe.
+    impl_->stopFeeder();
+    if (impl_->audio_output->isOpen()) {
+        impl_->audio_output->stop();
+    }
+    impl_->ring->clear();
 
     {
         std::lock_guard<std::mutex> lock(impl_->error_message_mutex);
@@ -304,24 +378,65 @@ bool Engine::prepareSource(const std::string& uri, int source_type) {
     }
     impl_->last_result_code.store(::oboe::Result::OK, std::memory_order_relaxed);
 
-    impl_->source_uri            = uri;
-    impl_->source_type           = source_type;
-    impl_->source_prepared.store(true,               std::memory_order_relaxed);
-    impl_->source_sample_rate.store(STUB_SAMPLE_RATE, std::memory_order_relaxed);
-    impl_->source_channels.store(STUB_CHANNELS,       std::memory_order_relaxed);
-    impl_->source_bit_depth.store(STUB_BIT_DEPTH,     std::memory_order_relaxed);
+    // The whole file is read here, on the control thread. The audio thread
+    // never touches the file or the parser.
+    std::vector<uint8_t> bytes;
+    if (!readWholeFile(uri, bytes)) {
+        {
+            std::lock_guard<std::mutex> lock(impl_->error_message_mutex);
+            impl_->error_message = "cannot read source: " + uri;
+        }
+        impl_->playback_state.store(PlaybackState::ERROR, std::memory_order_relaxed);
+        impl_->source_prepared.store(false, std::memory_order_relaxed);
+        return false;
+    }
+
+    impl_->source_bytes = std::move(bytes);
+    const auto parse = impl_->streamer.reset(impl_->source_bytes.data(),
+                                             impl_->source_bytes.size());
+    if (parse != futura::audio::WavParseResult::kOk) {
+        {
+            std::lock_guard<std::mutex> lock(impl_->error_message_mutex);
+            impl_->error_message = "unsupported WAV (parse result " +
+                std::to_string(static_cast<int>(parse)) + ")";
+        }
+        impl_->playback_state.store(PlaybackState::ERROR, std::memory_order_relaxed);
+        impl_->source_prepared.store(false, std::memory_order_relaxed);
+        return false;
+    }
+
+    // Stage 1: the alarm tone loops until the session stops it.
+    impl_->streamer.setLooping(true);
+    impl_->looping.store(true, std::memory_order_relaxed);
+    const auto& fmt = impl_->streamer.format();
+    const int64_t frames = static_cast<int64_t>(impl_->streamer.totalFrames());
+    impl_->loop_length_frames.store(frames, std::memory_order_relaxed);
+
+    impl_->source_uri  = uri;
+    impl_->source_type = source_type;
+    impl_->source_sample_rate.store(static_cast<int32_t>(fmt.sample_rate), std::memory_order_relaxed);
+    impl_->source_channels.store(static_cast<int32_t>(fmt.channels), std::memory_order_relaxed);
+    impl_->source_bit_depth.store(static_cast<int32_t>(fmt.bits_per_sample), std::memory_order_relaxed);
     {
         std::lock_guard<std::mutex> lock(impl_->source_mutex);
-        impl_->source_format = STUB_FORMAT;
+        impl_->source_format = "WAV PCM";
     }
-    impl_->duration_ms.store(STUB_DURATION_MS, std::memory_order_relaxed);
-    impl_->position_frames.store(0,            std::memory_order_relaxed);
+    impl_->duration_ms.store(
+        fmt.sample_rate > 0 ? frames * 1000 / static_cast<int64_t>(fmt.sample_rate) : 0,
+        std::memory_order_relaxed);
+    impl_->position_frames.store(0, std::memory_order_relaxed);
+    impl_->source_prepared.store(true, std::memory_order_relaxed);
     impl_->playback_state.store(PlaybackState::READY, std::memory_order_relaxed);
     return true;
 }
 
 void Engine::reset() {
     if (!impl_) return;
+
+    // Stop the feeder and drop buffered audio; the streamer returns to the start.
+    impl_->stopFeeder();
+    if (impl_->ring) impl_->ring->clear();
+    impl_->streamer.rewind();
 
     impl_->source_prepared.store(false, std::memory_order_relaxed);
     impl_->position_frames.store(0,     std::memory_order_relaxed);
@@ -360,6 +475,9 @@ bool Engine::play() {
     if (!impl_->source_prepared.load(std::memory_order_relaxed)) return false;
     if (!impl_->audio_output->isOpen()) return false;
 
+    // Fill the ring before the stream starts, so the first callback has data.
+    impl_->startFeeder();
+
     if (!impl_->audio_output->start()) {
         std::lock_guard<std::mutex> lock(impl_->error_message_mutex);
         impl_->error_message =
@@ -388,6 +506,8 @@ bool Engine::pause() {
         return false;
     }
 
+    // Pause keeps the buffered audio, so play() resumes without a gap.
+    impl_->stopFeeder();
     impl_->is_playing.store(false, std::memory_order_relaxed);
     impl_->playback_state.store(PlaybackState::PAUSED, std::memory_order_relaxed);
     impl_->stream_state.store(StreamState::PAUSED, std::memory_order_relaxed);
@@ -408,6 +528,10 @@ bool Engine::stop() {
     }
 
     impl_->is_playing.store(false, std::memory_order_relaxed);
+    // Stop drops buffered audio and rewinds to the start.
+    impl_->stopFeeder();
+    if (impl_->ring) impl_->ring->clear();
+    impl_->streamer.rewind();
     impl_->position_frames.store(0, std::memory_order_relaxed);
     impl_->playback_state.store(PlaybackState::READY, std::memory_order_relaxed);
     impl_->stream_state.store(StreamState::STOPPED, std::memory_order_relaxed);
@@ -782,36 +906,43 @@ double Engine::getDeviceHardwareLatencyMs() const noexcept {
         return ::oboe::DataCallbackResult::Stop;
     }
 
-    // Determine channel count for the silence memset.
     int32_t channel_count = impl_->audio_output
         ? impl_->audio_output->getChannelCount()
         : 0;
     if (channel_count <= 0) channel_count = 2;  // defensive fallback
 
-    // GROWTH: when the decoder + ring buffer + DSP chain are delivered,
-    // this becomes:
-    //   1. Read `num_frames` from LockFreeRingBuffer into audio_data.
-    //   2. Apply volume (NativeVolumeScaling).
-    //   3. Apply DSP chain (DspChain.h — EQ, crossfeed, etc.).
-    //   4. Apply the loudness maximizer (always-on safety).
-    //   5. Write to audio_data.
-    // For now: silence.
-    size_t total_bytes = static_cast<size_t>(num_frames)
-                       * static_cast<size_t>(channel_count)
-                       * sizeof(float);
-    std::memset(audio_data, 0, total_bytes);
+    float* out = static_cast<float*>(audio_data);
+    const size_t total_samples = static_cast<size_t>(num_frames)
+                               * static_cast<size_t>(channel_count);
 
-    // Advance position when playing.
+    // Fill from the ring. The ring holds stereo frames, so it is read only
+    // when the stream is stereo. On an underrun, the rest is zero-filled.
+    size_t frames_read = 0;
+    if (impl_->ring && channel_count == static_cast<int32_t>(Impl::kOutputChannels)) {
+        frames_read = impl_->ring->read(out, static_cast<size_t>(num_frames));
+    }
+    const size_t filled = frames_read * static_cast<size_t>(channel_count);
+    if (filled < total_samples) {
+        std::memset(out + filled, 0, (total_samples - filled) * sizeof(float));
+    }
+
+    // Advance position when playing. A looping source wraps instead of ending.
     if (impl_->is_playing.load(std::memory_order_relaxed)) {
+        const bool looping = impl_->looping.load(std::memory_order_relaxed);
         int64_t prev = impl_->position_frames.load(std::memory_order_relaxed);
         int64_t new_frames = prev + num_frames;
+        if (looping) {
+            const int64_t loop_frames =
+                impl_->loop_length_frames.load(std::memory_order_relaxed);
+            if (loop_frames > 0) new_frames %= loop_frames;
+        }
         impl_->position_frames.store(new_frames, std::memory_order_relaxed);
 
-        // End-of-track detection.
+        // End-of-track detection (non-looping sources only).
         int64_t duration_ms = impl_->duration_ms.load(std::memory_order_relaxed);
         int32_t sample_rate = impl_->audio_output
             ? impl_->audio_output->getSampleRate() : 0;
-        if (duration_ms > 0 && sample_rate > 0) {
+        if (!looping && duration_ms > 0 && sample_rate > 0) {
             int64_t duration_frames = (duration_ms * sample_rate) / 1000;
             if (new_frames >= duration_frames) {
                 impl_->is_playing.store(false, std::memory_order_relaxed);
@@ -819,10 +950,6 @@ double Engine::getDeviceHardwareLatencyMs() const noexcept {
                                             std::memory_order_relaxed);
                 impl_->position_frames.store(duration_frames,
                                              std::memory_order_relaxed);
-                // GROWTH: when gapless queue has a prepared next track,
-                // this is where the seamless transition fires. For now,
-                // we just report ENDED and let the control thread decide
-                // (typically it calls stop() or prepares the next source).
             }
         }
     }
