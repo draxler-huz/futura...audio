@@ -12,27 +12,33 @@ import kotlinx.coroutines.sync.withLock
 /**
  * In-memory counter tracking failed PIN attempts.
  *
- * Applies exponential backoff: after `N` failures, the caller must wait
- * `BACKOFF_BASE_MS * 2^(N - 1)` before trying again. `N` never resets
- * except on a successful verify or on [reset] (which is called on app
- * restart, because the lockout state is not persisted — a device reboot
- * during lockout is a legitimate escape hatch and is the correct
- * security boundary: without persistence, an attacker with physical
- * access cannot be *permanently* locked out, and the lockout cost is
- * measured in seconds-to-minutes, not minutes-to-hours, which matches
- * the threat model of a decoy PIN that is intended to *deceive the user*,
- * not to stop a determined adversary).
+ * Rule: after every `maxFailures` consecutive failures, PIN entry is locked
+ * for `lockoutMs`. Both values come from the user's [LockoutPolicy], which is
+ * read from [LockoutPolicyStore] before each PIN attempt via [refreshPolicy].
+ *
+ * Failure state is not persisted. A reboot clears the lockout. That is a
+ * deliberate boundary: the lockout is measured in seconds to minutes, and
+ * persisting it would turn a reboot into a permanent lockout for the user.
  */
 @Singleton
-internal class SecurityAccessAuditor @Inject constructor() {
+internal class SecurityAccessAuditor @Inject constructor(
+    private val policyStore: LockoutPolicyStore
+) {
     private val tag = "SecurityAccessAuditor"
     private val mutex = Mutex()
+
+    @Volatile private var policy: LockoutPolicy = LockoutPolicy.DEFAULT
 
     private val _failures = MutableStateFlow(0)
     val failures: StateFlow<Int> = _failures.asStateFlow()
 
     private val _lockedUntilMs = MutableStateFlow(0L)
     val lockedUntilMs: StateFlow<Long> = _lockedUntilMs.asStateFlow()
+
+    /** Reload the user's lockout policy. Call before evaluating an attempt. */
+    suspend fun refreshPolicy() {
+        policy = policyStore.load()
+    }
 
     /** True if the caller is currently locked out. */
     fun isLocked(): Boolean = System.currentTimeMillis() < _lockedUntilMs.value
@@ -41,16 +47,17 @@ internal class SecurityAccessAuditor @Inject constructor() {
     fun remainingLockoutMs(): Long =
         (_lockedUntilMs.value - System.currentTimeMillis()).coerceAtLeast(0L)
 
-    /** Record one failed verification. Returns the resulting lockout
-     *  duration in ms (0 if still under the grace threshold). */
+    /** Record one failed verification. Returns the lockout duration in ms
+     *  that now applies, or 0 if the user is still under the limit. */
     suspend fun recordFailure(): Long = mutex.withLock {
         _failures.value += 1
-        if (_failures.value % MIN_FAILURES_BEFORE_LOCKOUT != 0) {
+        val current = policy
+        if (_failures.value % current.maxFailures != 0) {
             return@withLock 0L
         }
-        _lockedUntilMs.value = System.currentTimeMillis() + LOCKOUT_MS
-        Log.w(tag, "Failure #${_failures.value} — locked for ${LOCKOUT_MS}ms")
-        LOCKOUT_MS
+        _lockedUntilMs.value = System.currentTimeMillis() + current.lockoutMs
+        Log.w(tag, "Failure #${_failures.value} — locked for ${current.lockoutMs}ms")
+        current.lockoutMs
     }
 
     /** Record a successful verification. Clears all state. */
@@ -63,16 +70,14 @@ internal class SecurityAccessAuditor @Inject constructor() {
     }
 
     /** Failed attempts left before the next lockout. */
-    fun attemptsLeft(): Int = MIN_FAILURES_BEFORE_LOCKOUT - (_failures.value % MIN_FAILURES_BEFORE_LOCKOUT)
+    fun attemptsLeft(): Int {
+        val max = policy.maxFailures
+        return max - (_failures.value % max)
+    }
 
     /** Reset on app restart — see class KDoc for the security rationale. */
     suspend fun reset() = mutex.withLock {
         _failures.value = 0
         _lockedUntilMs.value = 0L
-    }
-
-    private companion object {
-        const val MIN_FAILURES_BEFORE_LOCKOUT = 3
-        const val LOCKOUT_MS = 30_000L
     }
 }

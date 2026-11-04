@@ -98,6 +98,7 @@ object VaultUnlockLedger {
 class BiometricWakeUpLock @Inject internal constructor(
     @ApplicationContext private val context: Context,
     private val pinVerifier: DecoyPinVerifier,
+    private val pinStore: DecoyPinStore,
     private val auditor: SecurityAccessAuditor
 ) {
     private val tag = "BiometricWakeUpLock"
@@ -224,13 +225,22 @@ class BiometricWakeUpLock @Inject internal constructor(
      * cannot tell them apart from the result.
      */
     suspend fun unlockWithPin(pin: String): VaultUnlockProof? {
+        auditor.refreshPolicy()
         if (auditor.isLocked()) return null
-        return if (pinVerifier.verify(pin) == true) {
-            auditor.recordSuccess()
-            mintProof()
-        } else {
-            auditor.recordFailure()
-            null
+        // No PIN yet (first sign-in not finished): nothing to check against,
+        // so this is not a failed attempt.
+        if (!pinStore.hasPin()) return null
+        return when (pinVerifier.verify(pin)) {
+            true -> {
+                auditor.recordSuccess()
+                mintProof()
+            }
+            false -> {
+                auditor.recordFailure()
+                null
+            }
+            // Unverifiable (crypto or record error): must not count toward lockout.
+            null -> null
         }
     }
 
