@@ -45,8 +45,9 @@ import com.futura.ui.viewmodel.VaultSecurityViewModel
 import kotlinx.coroutines.delay
 
 /**
- * Gate in front of the vault. Offers a biometric prompt and a 5-digit PIN
- * keypad that reshuffles after each wrong attempt. Lockout is enforced by the
+ * Gate in front of the vault. Offers a biometric prompt and a 6-digit PIN.
+ * On first sign-in (no PIN yet) it asks the user to choose and confirm one.
+ * The keypad reshuffles after each wrong attempt. Lockout is enforced by the
  * security module and shown here. [onUnlocked] runs once the vault is open.
  * FLAG_SECURE is set while the screen is shown.
  */
@@ -62,6 +63,11 @@ fun VaultSecurityScreen(
     var pin by rememberSaveable { mutableStateOf("") }
     var layoutSeed by remember { mutableStateOf(0) }
     val keys = remember(layoutSeed) { (0..9).shuffled() }
+
+    // null while loading; false means first sign-in, so the screen sets a PIN.
+    val hasPin by produceState<Boolean?>(initialValue = null) { value = viewModel.hasPin() }
+    // Setup only: the first entry, waiting for the user to type it again.
+    var firstEntry by rememberSaveable { mutableStateOf<String?>(null) }
 
     DisposableEffect(activity) {
         val window = activity?.window
@@ -88,10 +94,28 @@ fun VaultSecurityScreen(
     }
 
     fun press(digit: Int) {
-        if (locked || state.busy || pin.length >= VaultSecurityViewModel.PIN_LENGTH) return
+        if (hasPin == null || locked || state.busy || pin.length >= VaultSecurityViewModel.PIN_LENGTH) return
         pin += digit.toString()
-        if (pin.length == VaultSecurityViewModel.PIN_LENGTH) {
+        if (pin.length < VaultSecurityViewModel.PIN_LENGTH) return
+        if (hasPin == true) {
             viewModel.submitPin(pin, onUnlocked)
+            return
+        }
+        // First sign-in: the PIN is entered twice, and both entries must match.
+        val first = firstEntry
+        when {
+            first == null -> {
+                firstEntry = pin
+                pin = ""
+                layoutSeed++
+            }
+            pin == first -> viewModel.setupPin(pin, onUnlocked)
+            else -> {
+                firstEntry = null
+                pin = ""
+                layoutSeed++
+                viewModel.reportSetupMismatch()
+            }
         }
     }
 
@@ -113,7 +137,7 @@ fun VaultSecurityScreen(
 
         Spacer(Modifier.height(16.dp))
         Text(
-            text = "VAULT ENCRYPTED",
+            text = if (hasPin == false) "CREATE VAULT PIN" else "VAULT ENCRYPTED",
             color = FuturaColors.TextPrimary,
             fontSize = 20.sp,
             fontWeight = FontWeight.Bold,
@@ -121,23 +145,30 @@ fun VaultSecurityScreen(
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            text = "Authenticate to manage protected alarms and view confidential records.",
+            text = if (hasPin == false) {
+                "Choose a ${VaultSecurityViewModel.PIN_LENGTH}-digit PIN. You will use it to open the vault."
+            } else {
+                "Authenticate to manage protected alarms and view confidential records."
+            },
             color = FuturaColors.TextSecondary,
             fontSize = 13.sp
         )
 
-        Spacer(Modifier.height(24.dp))
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(width = 220.dp, height = 48.dp)
-                .clip(RoundedCornerShape(24.dp))
-                .border(1.dp, FuturaColors.Cyan, RoundedCornerShape(24.dp))
-                .clickable(enabled = !state.busy && !locked && activity != null) {
-                    activity?.let { viewModel.unlockWithBiometrics(it, onUnlocked) }
-                }
-        ) {
-            Text(text = "Use fingerprint or face", color = FuturaColors.Cyan, fontSize = 14.sp)
+        // Biometrics are offered only after a PIN exists, so first sign-in always sets one.
+        if (hasPin == true) {
+            Spacer(Modifier.height(24.dp))
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(width = 220.dp, height = 48.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .border(1.dp, FuturaColors.Cyan, RoundedCornerShape(24.dp))
+                    .clickable(enabled = !state.busy && !locked && activity != null) {
+                        activity?.let { viewModel.unlockWithBiometrics(it, onUnlocked) }
+                    }
+            ) {
+                Text(text = "Use fingerprint or face", color = FuturaColors.Cyan, fontSize = 14.sp)
+            }
         }
 
         Spacer(Modifier.height(24.dp))
@@ -147,6 +178,8 @@ fun VaultSecurityScreen(
         val statusText = when {
             locked -> "Locked for ${cooldownSeconds}s"
             state.message != null -> state.message.orEmpty()
+            hasPin == false && firstEntry != null -> "Enter the PIN again to confirm"
+            hasPin == false -> "Choose a ${VaultSecurityViewModel.PIN_LENGTH}-digit PIN"
             else -> "Enter ${VaultSecurityViewModel.PIN_LENGTH}-digit PIN"
         }
         Text(
@@ -158,7 +191,7 @@ fun VaultSecurityScreen(
         Spacer(Modifier.height(24.dp))
         Keypad(
             keys = keys,
-            enabled = !locked && !state.busy,
+            enabled = hasPin != null && !locked && !state.busy,
             onDigit = { press(it) },
             onBackspace = { if (pin.isNotEmpty()) pin = pin.dropLast(1) }
         )
@@ -168,7 +201,7 @@ fun VaultSecurityScreen(
 // ── Pieces ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun PinDots(filled: Int, total: Int) {
+internal fun PinDots(filled: Int, total: Int) {
     Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         repeat(total) { index ->
             Box(
@@ -186,7 +219,7 @@ private fun PinDots(filled: Int, total: Int) {
  * Bottom row: blank, the last digit, backspace.
  */
 @Composable
-private fun Keypad(
+internal fun Keypad(
     keys: List<Int>,
     enabled: Boolean,
     onDigit: (Int) -> Unit,

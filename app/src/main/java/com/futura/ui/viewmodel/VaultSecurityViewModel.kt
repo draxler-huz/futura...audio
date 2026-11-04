@@ -5,6 +5,7 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.futura.alarm.BiometricWakeUpLock
+import com.futura.alarm.PinManager
 import com.futura.alarm.VaultManager
 import com.futura.alarm.VaultUnlockProof
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -17,12 +18,17 @@ import kotlinx.coroutines.launch
 
 /**
  * Drives the vault gate. Lockout and attempt counting belong to the security
- * module ([BiometricWakeUpLock]). This class only shows them. A successful
- * unlock spends the proof through [VaultManager.unlock] before navigating.
+ * module ([BiometricWakeUpLock]). This class only shows them.
+ *
+ * First sign-in: when no PIN exists, the gate runs in setup mode. The user
+ * creates the PIN ([setupPin]), and the vault opens straight away.
+ * A successful unlock spends the proof through [VaultManager.unlock] before
+ * navigating.
  */
 @HiltViewModel
 class VaultSecurityViewModel @Inject constructor(
     private val biometricLock: BiometricWakeUpLock,
+    private val pinManager: PinManager,
     private val vault: VaultManager
 ) : ViewModel() {
 
@@ -35,6 +41,9 @@ class VaultSecurityViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
+
+    /** True once the user has set a PIN. False means first sign-in. */
+    suspend fun hasPin(): Boolean = pinManager.hasPin()
 
     /** Milliseconds of cooldown left, read from the security module. */
     fun cooldownRemainingMs(): Long = biometricLock.pinLockoutRemainingMs()
@@ -79,6 +88,32 @@ class VaultSecurityViewModel @Inject constructor(
         }
     }
 
+    /**
+     * First sign-in only: save the new PIN, then open the vault with it.
+     * Does nothing if a PIN already exists, so setup cannot replace one.
+     */
+    fun setupPin(pin: String, onUnlocked: () -> Unit) {
+        if (_state.value.busy) return
+        _state.update { it.copy(busy = true, message = null) }
+        viewModelScope.launch {
+            if (!pinManager.createPin(pin)) {
+                _state.update { it.copy(busy = false, message = "Could not save the PIN. Try again.") }
+                return@launch
+            }
+            val proof = biometricLock.unlockWithPin(pin)
+            if (proof == null) {
+                _state.update { it.copy(busy = false, message = "The vault could not open. Try again.") }
+            } else {
+                openVault(proof, onUnlocked)
+            }
+        }
+    }
+
+    /** Shown when the two PIN entries in setup do not match. */
+    fun reportSetupMismatch() {
+        _state.update { it.copy(message = "The PINs did not match. Start again.") }
+    }
+
     private fun openVault(proof: VaultUnlockProof, onUnlocked: () -> Unit) {
         viewModelScope.launch {
             if (vault.unlock(proof)) {
@@ -91,6 +126,7 @@ class VaultSecurityViewModel @Inject constructor(
     }
 
     companion object {
-        const val PIN_LENGTH = 5
+        /** Same length as [PinManager.PIN_LENGTH]; the keypad and the store agree. */
+        const val PIN_LENGTH = PinManager.PIN_LENGTH
     }
 }

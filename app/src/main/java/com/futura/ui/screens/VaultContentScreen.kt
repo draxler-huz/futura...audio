@@ -4,6 +4,8 @@ package com.futura.ui.screens
 import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,6 +53,7 @@ fun VaultContentScreen(
             .background(FuturaColors.OLEDBlack)
             .statusBarsPadding()
             .padding(horizontal = 24.dp, vertical = 16.dp)
+            .verticalScroll(rememberScrollState())
     ) {
         Text(
             text = "VAULT · UNLOCKED",
@@ -77,7 +80,9 @@ fun VaultContentScreen(
             )
         }
 
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(24.dp))
+        VaultSecuritySettings(activity = activity, viewModel = viewModel)
+        Spacer(Modifier.height(24.dp))
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
