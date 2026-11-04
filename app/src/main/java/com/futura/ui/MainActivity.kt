@@ -80,6 +80,16 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.navigation.compose.currentBackStackEntryAsState
 import com.futura.R
 import com.futura.alarm.VaultUnlockProof
 import com.futura.audio.ui.components.UniversalMediaScreen
@@ -296,6 +306,27 @@ class MainActivity : ComponentActivity() {
  * with a call to the real Screen composable; nothing else in this file
  * changes.
  */
+// ═════════════════════════════════════════════════════════════════════════
+// Bottom navigation
+// ═════════════════════════════════════════════════════════════════════════
+
+/** Top-level destinations shown in the bottom bar. Other routes stay full-screen. */
+private enum class MainTab(val route: MainRoute, val label: String, val icon: ImageVector) {
+    Alarms(MainRoute.AlarmList, "Alarms", Icons.Default.Alarm),
+    Library(MainRoute.Library, "Library", Icons.Default.LibraryMusic),
+    NowPlaying(MainRoute.NowPlaying, "Now Playing", Icons.Default.PlayCircle),
+    MediaHub(MainRoute.MediaHub, "Media Hub", Icons.Default.Public)
+}
+
+/** Switches tabs without stacking duplicates; the Alarms tab is the base of the stack. */
+private fun NavHostController.navigateTab(route: MainRoute) {
+    navigate(route.route) {
+        popUpTo(MainRoute.AlarmList.route) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
+    }
+}
+
 @Composable
 private fun MainNavHost(
     pendingRoute: StateFlow<MainRoute?>,
@@ -322,11 +353,16 @@ private fun MainNavHost(
         pendingRoute.value?.route ?: MainRoute.Loading.route
     }
 
+    val backEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = backEntry?.destination?.route
+    val showBottomBar = MainTab.values().any { it.route.route == currentRoute }
+
+    Column(modifier = Modifier.fillMaxSize()) {
     NavHost(
         navController = navController,
         startDestination = startDestination,
         modifier = Modifier
-            .fillMaxSize()
+            .weight(1f)
             .windowInsetsPadding(WindowInsets.safeDrawing)
     ) {
         composable(MainRoute.Loading.route) {
@@ -448,6 +484,20 @@ private fun MainNavHost(
                 onBack = { navController.popBackStack() }
             )
         }
+    }
+
+    if (showBottomBar) {
+        NavigationBar(containerColor = Color(0xFF0A0C10)) {
+            MainTab.values().forEach { tab ->
+                NavigationBarItem(
+                    selected = currentRoute == tab.route.route,
+                    onClick = { navController.navigateTab(tab.route) },
+                    icon = { Icon(imageVector = tab.icon, contentDescription = tab.label) },
+                    label = { Text(tab.label) }
+                )
+            }
+        }
+    }
     }
 }
 
