@@ -9,6 +9,7 @@ add_subdirectory(src/main/cpp/third_party/oboe oboe EXCLUDE_FROM_ALL)
 
 add_library(futura_engine SHARED
     src/main/cpp/audio/AudioOutput.cpp
+    src/main/cpp/audio/pcm_parser.cpp
     src/main/cpp/core/Engine.cpp
     src/main/cpp/jni/JniBridge.cpp
     src/main/cpp/jni/NativeEngineJni.cpp
