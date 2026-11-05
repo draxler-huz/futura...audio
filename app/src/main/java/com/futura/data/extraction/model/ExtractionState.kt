@@ -29,8 +29,8 @@ sealed interface ExtractionState {
 }
 
 /**
- * Live progress during a scan. Emitted via `onProgress` callback at a
- * bounded rate — the extractor throttles to avoid flooding the UI.
+ * Live progress during a scan. Emitted via the `onProgress` callback once per
+ * completed file, from worker threads.
  */
 data class ScanProgress(
     val filesProcessed: Int,
