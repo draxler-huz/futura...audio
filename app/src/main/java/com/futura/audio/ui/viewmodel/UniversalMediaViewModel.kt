@@ -45,12 +45,16 @@ class UniversalMediaViewModel @Inject constructor(
     fun processAndAddUrl(url: String, category: PipelineCategory) {
         if (url.isBlank()) return
 
+        // Accept "example.com/feed" as well as full links; OkHttp needs a scheme.
+        val trimmed = url.trim()
+        val normalized = if (trimmed.contains("://")) trimmed else "https://$trimmed"
+
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
             try {
                 // Category 2 resolvers will be chained here when built.
                 val resolvedItems = when (category) {
-                    PipelineCategory.COMPLIANT_STANDARD -> repository.resolve(url)
+                    PipelineCategory.COMPLIANT_STANDARD -> repository.resolve(normalized)
                     PipelineCategory.ADVANCED_EXTRACTION -> emptyList()
                 }
 

@@ -146,6 +146,30 @@ fun UniversalMediaScreen(
                 }
             }
 
+            // Errors from resolving a link or loading saved sources. Without this
+            // they were stored in state but never shown.
+            uiState.errorMessage?.let { message ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF3A1420))
+                        .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = message,
+                        color = Color(0xFFFF8A9B),
+                        fontSize = 13.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = { viewModel.clearError() }) {
+                        Text("Dismiss", color = Color.White)
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             // Media List
