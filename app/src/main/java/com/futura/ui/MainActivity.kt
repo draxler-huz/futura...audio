@@ -65,6 +65,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
@@ -470,6 +471,14 @@ private fun MainNavHost(
             )
         }
         composable(MainRoute.VaultSecurity.route) {
+            // Reopening within the grace period skips the PIN gate.
+            LaunchedEffect(Unit) {
+                if (VaultLockClock.withinGrace()) {
+                    navController.navigate(MainRoute.VaultContent.route) {
+                        popUpTo(MainRoute.VaultSecurity.route) { inclusive = true }
+                    }
+                }
+            }
             VaultSecurityScreen(
                 onUnlocked = {
                     navController.navigate(MainRoute.VaultContent.route) {
@@ -480,6 +489,10 @@ private fun MainNavHost(
             )
         }
         composable(MainRoute.VaultContent.route) {
+            // Leaving the vault by any route counts as locking it.
+            DisposableEffect(Unit) {
+                onDispose { VaultLockClock.markLocked() }
+            }
             VaultContentScreen(
                 onLocked = { navController.popBackStack(MainRoute.AlarmList.route, false) }
             )
