@@ -129,12 +129,13 @@ class ExtractionFileWatcher @Inject constructor() {
     }
 
     private fun dispatch(eventMask: Int, fullPath: String) {
+        // The FileObserver constants are only in scope inside the observer subclass.
         val event = when {
-            eventMask and CREATE != 0 -> FileChangeEvent.Created(fullPath)
-            eventMask and MOVED_TO != 0 -> FileChangeEvent.MovedTo(fullPath)
-            eventMask and MOVED_FROM != 0 -> FileChangeEvent.MovedFrom(fullPath)
-            eventMask and DELETE != 0 -> FileChangeEvent.Deleted(fullPath)
-            eventMask and MODIFY != 0 -> FileChangeEvent.Modified(fullPath)
+            eventMask and FileObserver.CREATE != 0 -> FileChangeEvent.Created(fullPath)
+            eventMask and FileObserver.MOVED_TO != 0 -> FileChangeEvent.MovedTo(fullPath)
+            eventMask and FileObserver.MOVED_FROM != 0 -> FileChangeEvent.MovedFrom(fullPath)
+            eventMask and FileObserver.DELETE != 0 -> FileChangeEvent.Deleted(fullPath)
+            eventMask and FileObserver.MODIFY != 0 -> FileChangeEvent.Modified(fullPath)
             else -> return
         }
         val key = "${event.javaClass.simpleName}|$fullPath"
