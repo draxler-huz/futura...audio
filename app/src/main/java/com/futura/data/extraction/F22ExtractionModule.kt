@@ -4,6 +4,8 @@ package com.futura.data.extraction
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
+import com.futura.data.extraction.workflow.CloudSyncProvider
+import com.futura.data.extraction.workflow.NoOpCloudSyncProvider
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
