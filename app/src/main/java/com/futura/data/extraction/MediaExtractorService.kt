@@ -52,7 +52,8 @@ import kotlinx.coroutines.withContext
  */
 @Singleton
 class MediaExtractorService @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val quarantine: CorruptFileQuarantine
 ) {
     private val tag = "MediaExtractorService"
     private val mutex = Mutex()
@@ -294,38 +295,13 @@ class MediaExtractorService @Inject constructor(
     ): Int = withContext(Dispatchers.IO) {
         mutex.withLock {
             confirmed.count { candidate ->
-                quarantine(File(candidate.filePath), candidate.reason, config)
+                quarantine.quarantine(
+                    File(candidate.filePath),
+                    candidate.reason,
+                    config.quarantineDirectoryName
+                )
             }
         }
-    }
-
-    /**
-     * Move [file] into the app-private quarantine directory so it is
-     * preserved for the user but excluded from scans. Returns true if moved.
-     *
-     * GROWTH (group 2): extract to `CorruptFileQuarantine.kt`. Kept
-     * inline today so `MediaExtractorService` compiles standalone.
-     */
-    private fun quarantine(file: File, reason: String, config: ExtractionConfig): Boolean {
-        try {
-            val quarantineDir = File(context.filesDir, config.quarantineDirectoryName)
-            if (!quarantineDir.exists() && !quarantineDir.mkdirs()) {
-                Log.w(tag, "Cannot create quarantine dir: ${quarantineDir.absolutePath}")
-                return false
-            }
-            val dest = File(
-                quarantineDir,
-                "${System.currentTimeMillis()}_${file.name}"
-            )
-            if (file.renameTo(dest)) {
-                Log.i(tag, "Quarantined ${file.name}: $reason")
-                return true
-            }
-            Log.w(tag, "renameTo failed for ${file.absolutePath} → ${dest.absolutePath}")
-        } catch (e: Exception) {
-            Log.e(tag, "quarantine failed for ${file.absolutePath}", e)
-        }
-        return false
     }
 
     /**
