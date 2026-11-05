@@ -6,6 +6,7 @@ import com.futura.audio.data.SavedSourcesStore
 import com.futura.audio.domain.MediaItem
 import com.futura.audio.domain.PipelineCategory
 import com.futura.audio.domain.PlaybackRoute
+import com.futura.audio.pipeline.advanced.PlaylistResolver
 import com.futura.audio.pipeline.compliant.MusicSourceRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -19,7 +20,8 @@ import javax.inject.Inject
 @HiltViewModel
 class UniversalMediaViewModel @Inject constructor(
     private val repository: MusicSourceRepository,
-    private val store: SavedSourcesStore
+    private val store: SavedSourcesStore,
+    private val playlistResolver: PlaylistResolver
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MediaHubUiState())
@@ -52,10 +54,9 @@ class UniversalMediaViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
             try {
-                // Category 2 resolvers will be chained here when built.
                 val resolvedItems = when (category) {
                     PipelineCategory.COMPLIANT_STANDARD -> repository.resolve(normalized)
-                    PipelineCategory.ADVANCED_EXTRACTION -> emptyList()
+                    PipelineCategory.ADVANCED_EXTRACTION -> resolveAdvanced(normalized)
                 }
 
                 _uiState.update { state ->
@@ -82,6 +83,19 @@ class UniversalMediaViewModel @Inject constructor(
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * Category 2 currently handles playlists the publisher offers
+     * (.m3u, .pls). Other links are refused with a message.
+     */
+    private suspend fun resolveAdvanced(url: String): List<MediaItem> {
+        val path = url.substringBefore('?').lowercase()
+        return if (path.endsWith(".m3u") || path.endsWith(".pls")) {
+            playlistResolver.resolvePlaylist(url)
+        } else {
+            throw IllegalArgumentException("Advanced extraction supports .m3u and .pls playlists for now.")
         }
     }
 
