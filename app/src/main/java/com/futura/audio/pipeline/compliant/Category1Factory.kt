@@ -1,8 +1,10 @@
 package com.futura.audio.pipeline.compliant
 
+import com.futura.audio.domain.MediaId
 import com.futura.audio.domain.MediaItem
+import com.futura.audio.domain.PipelineCategory
 import com.futura.audio.domain.PlaybackRoute
-import java.util.UUID
+import com.futura.audio.domain.Subcategory
 import javax.inject.Inject
 
 class Category1Factory @Inject constructor(
@@ -19,13 +21,14 @@ class Category1Factory @Inject constructor(
             url.endsWith(".mp3") || url.endsWith(".m4a") || url.endsWith(".m3u8") -> {
                 listOf(
                     MediaItem(
-                        id = UUID.randomUUID().toString(),
+                        id = MediaId.random(),
                         title = url.substringAfterLast('/'),
                         artist = "Direct Published Audio",
                         streamUrl = url,
                         artworkUrl = null,
                         sourceName = "Direct Stream",
-                        subcategory = "direct.audio_file",
+                        subcategory = Subcategory("direct.audio_file"),
+                        category = PipelineCategory.COMPLIANT_STANDARD,
                         route = PlaybackRoute.EXOPLAYER_DIRECT
                     )
                 )

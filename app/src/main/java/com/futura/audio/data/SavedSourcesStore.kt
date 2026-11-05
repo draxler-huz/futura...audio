@@ -1,9 +1,11 @@
 package com.futura.audio.data
 
 import android.content.Context
+import com.futura.audio.domain.MediaId
 import com.futura.audio.domain.MediaItem
 import com.futura.audio.domain.PipelineCategory
 import com.futura.audio.domain.PlaybackRoute
+import com.futura.audio.domain.Subcategory
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
@@ -13,6 +15,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import kotlin.time.Duration.Companion.milliseconds
 import org.json.JSONObject
 
 /**
@@ -56,27 +59,27 @@ class SavedSourcesStore @Inject constructor(
     }
 
     private fun MediaItem.toJson(): JSONObject = JSONObject()
-        .put("id", id)
+        .put("id", id.value)
         .put("title", title)
         .put("artist", artist ?: JSONObject.NULL)
         .put("streamUrl", streamUrl)
         .put("artworkUrl", artworkUrl ?: JSONObject.NULL)
         .put("sourceName", sourceName)
-        .put("subcategory", subcategory)
+        .put("subcategory", subcategory.value)
         .put("durationMs", durationMs)
         .put("route", route.name)
         .put("category", category.name)
         .put("isVideo", isVideo)
 
     private fun JSONObject.toMediaItem(): MediaItem = MediaItem(
-        id = getString("id"),
+        id = MediaId(getString("id")),
         title = getString("title"),
         artist = if (isNull("artist")) null else getString("artist"),
         streamUrl = getString("streamUrl"),
         artworkUrl = if (isNull("artworkUrl")) null else getString("artworkUrl"),
         sourceName = getString("sourceName"),
-        subcategory = getString("subcategory"),
-        durationMs = optLong("durationMs", 0L),
+        subcategory = Subcategory(getString("subcategory")),
+        duration = optLong("durationMs", 0L).takeIf { it > 0L }?.milliseconds,
         route = PlaybackRoute.valueOf(getString("route")),
         category = PipelineCategory.valueOf(getString("category")),
         isVideo = optBoolean("isVideo", false)

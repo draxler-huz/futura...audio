@@ -61,7 +61,7 @@ fun GlassmorphicMediaCard(item: MediaItem, onClick: () -> Unit) {
                 Text(text = item.title, color = Color.White, fontSize = 14.sp, maxLines = 1)
                 Row {
                     Text(text = item.sourceName, color = Color.Gray, fontSize = 11.sp)
-                    Text(text = " • ${item.subcategory}", color = accentColor, fontSize = 10.sp)
+                    Text(text = " • ${item.subcategory.value}", color = accentColor, fontSize = 10.sp)
                 }
             }
         }

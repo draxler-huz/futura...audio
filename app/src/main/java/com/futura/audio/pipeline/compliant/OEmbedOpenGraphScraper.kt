@@ -1,13 +1,15 @@
 package com.futura.audio.pipeline.compliant
 
+import com.futura.audio.domain.MediaId
 import com.futura.audio.domain.MediaItem
+import com.futura.audio.domain.PipelineCategory
 import com.futura.audio.domain.PlaybackRoute
+import com.futura.audio.domain.Subcategory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
-import java.util.UUID
 import javax.inject.Inject
 
 class OEmbedOpenGraphScraper @Inject constructor(
@@ -41,13 +43,14 @@ class OEmbedOpenGraphScraper @Inject constructor(
             val image = ogImageRegex.find(html)?.groupValues?.get(1)
 
             MediaItem(
-                id = UUID.randomUUID().toString(),
+                id = MediaId.random(),
                 title = title,
                 artist = "Web Embed Source",
                 streamUrl = pageUrl,   // Loaded by the WebView container, not ExoPlayer
                 artworkUrl = image,
                 sourceName = "Official Web Embed",
-                subcategory = "metadata.opengraph",
+                subcategory = Subcategory("metadata.opengraph"),
+                category = PipelineCategory.COMPLIANT_STANDARD,
                 route = PlaybackRoute.WEB_EMBED_CONTAINER
             )
         }

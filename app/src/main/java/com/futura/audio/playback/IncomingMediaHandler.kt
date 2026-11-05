@@ -6,9 +6,11 @@ import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
 import com.futura.audio.data.SavedSourcesStore
+import com.futura.audio.domain.MediaId
 import com.futura.audio.domain.MediaItem
 import com.futura.audio.domain.PipelineCategory
 import com.futura.audio.domain.PlaybackRoute
+import com.futura.audio.domain.Subcategory
 import com.futura.audio.pipeline.compliant.MusicSourceRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -42,13 +44,13 @@ class IncomingMediaHandler @Inject constructor(
     fun itemFor(uri: Uri): MediaItem {
         val video = isVideo(contentType(uri), uri)
         return MediaItem(
-            id = uri.toString(),
+            id = MediaId(uri.toString()),
             title = displayName(uri)?.substringBeforeLast('.')?.takeIf { it.isNotBlank() } ?: "Local media",
             artist = null,
             streamUrl = uri.toString(),
             artworkUrl = null,
             sourceName = "Local file",
-            subcategory = "local.file",
+            subcategory = Subcategory("local.file"),
             route = PlaybackRoute.EXOPLAYER_DIRECT,
             category = PipelineCategory.COMPLIANT_STANDARD,
             isVideo = video

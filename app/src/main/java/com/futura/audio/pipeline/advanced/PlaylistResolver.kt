@@ -1,12 +1,13 @@
 // app/src/main/java/com/futura/audio/pipeline/advanced/PlaylistResolver.kt
 package com.futura.audio.pipeline.advanced
 
+import com.futura.audio.domain.MediaId
 import com.futura.audio.domain.MediaItem
 import com.futura.audio.domain.PipelineCategory
 import com.futura.audio.domain.PlaybackRoute
+import com.futura.audio.domain.Subcategory
 import java.io.IOException
 import java.net.URI
-import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -88,14 +89,14 @@ class PlaylistResolver @Inject constructor(
     private fun toItem(base: String, title: String?, rawUrl: String): MediaItem? {
         val resolved = resolveEntry(base, rawUrl) ?: return null
         return MediaItem(
-            id = UUID.randomUUID().toString(),
+            id = MediaId.random(),
             title = title?.takeIf { it.isNotBlank() }
                 ?: resolved.substringAfterLast('/').substringBefore('?'),
             artist = "Playlist",
             streamUrl = resolved,
             artworkUrl = null,
             sourceName = "Playlist",
-            subcategory = "playlist.entry",
+            subcategory = Subcategory("playlist.entry"),
             route = PlaybackRoute.EXOPLAYER_DIRECT,
             category = PipelineCategory.ADVANCED_EXTRACTION
         )

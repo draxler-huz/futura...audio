@@ -4,9 +4,11 @@ import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
+import com.futura.audio.domain.MediaId
 import com.futura.audio.domain.MediaItem
 import com.futura.audio.domain.PipelineCategory
 import com.futura.audio.domain.PlaybackRoute
+import com.futura.audio.domain.Subcategory
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -57,13 +59,13 @@ class DeviceMediaScanner @Inject constructor(
                     ?: cursor.getString(nameIndex)?.substringBeforeLast('.')
                     ?: "Device media"
                 items += MediaItem(
-                    id = uri.toString(),
+                    id = MediaId(uri.toString()),
                     title = title,
                     artist = if (artistIndex >= 0) cursor.getString(artistIndex)?.takeIf { it.isNotBlank() } else null,
                     streamUrl = uri.toString(),
                     artworkUrl = null,
                     sourceName = "Device media",
-                    subcategory = if (video) "device.video" else "device.audio",
+                    subcategory = Subcategory(if (video) "device.video" else "device.audio"),
                     route = PlaybackRoute.EXOPLAYER_DIRECT,
                     category = PipelineCategory.COMPLIANT_STANDARD,
                     isVideo = video
