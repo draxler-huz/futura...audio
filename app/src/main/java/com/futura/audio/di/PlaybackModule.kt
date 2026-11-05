@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.exoplayer.ExoPlayer
-import com.futura.audio.pipeline.advanced.HeaderSpoofingInterceptor
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -20,9 +19,9 @@ object PlaybackModule {
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(headerInterceptor: HeaderSpoofingInterceptor): OkHttpClient {
+    fun provideOkHttpClient(): OkHttpClient {
+        // No header-spoofing interceptor: requests use the normal client identity.
         return OkHttpClient.Builder()
-            .addInterceptor(headerInterceptor)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .followRedirects(true)

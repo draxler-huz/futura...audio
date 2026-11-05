@@ -37,7 +37,7 @@ import com.futura.audio.ui.viewmodel.UniversalMediaViewModel
 import kotlin.math.absoluteValue
 
 @Composable
-fun UniversalMediaScreen(viewModel: UniversalMediaViewModel) {
+fun UniversalMediaHubScreen(viewModel: UniversalMediaViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     var inputUrl by remember { mutableStateOf("") }
 
@@ -85,7 +85,7 @@ fun UniversalMediaScreen(viewModel: UniversalMediaViewModel) {
             if (activeItems.isNotEmpty()) {
                 Text(text = "RESULTS (${activeItems.size})", color = Color.Gray, fontSize = 11.sp, letterSpacing = 1.5.sp)
                 Spacer(modifier = Modifier.height(8.dp))
-                CoverFlowCarousel(activeItems) { viewModel.onMediaItemClicked(it) }
+                HubCoverFlow(activeItems) { viewModel.onMediaItemClicked(it) }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -120,13 +120,13 @@ fun UniversalMediaScreen(viewModel: UniversalMediaViewModel) {
         }
 
         uiState.activeWebViewUrl?.let { url ->
-            EmbeddedWebViewDialog(url) { viewModel.dismissWebView() }
+            HubWebViewDialog(url) { viewModel.dismissWebView() }
         }
     }
 }
 
 @Composable
-fun CoverFlowCarousel(items: List<com.futura.audio.domain.MediaItem>, onSelect: (com.futura.audio.domain.MediaItem) -> Unit) {
+fun HubCoverFlow(items: List<com.futura.audio.domain.MediaItem>, onSelect: (com.futura.audio.domain.MediaItem) -> Unit) {
     val pagerState = rememberPagerState(pageCount = { items.size })
     HorizontalPager(state = pagerState, contentPadding = PaddingValues(horizontal = 80.dp), modifier = Modifier.fillMaxWidth().height(170.dp)) { page ->
         val offset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
@@ -166,7 +166,7 @@ fun GlassmorphicCard(item: com.futura.audio.domain.MediaItem, onClick: () -> Uni
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun EmbeddedWebViewDialog(url: String, onDismiss: () -> Unit) {
+fun HubWebViewDialog(url: String, onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(modifier = Modifier.fillMaxWidth(0.9f).fillMaxHeight(0.7f), color = Color(0xFF0F1115)) {
             Column {
