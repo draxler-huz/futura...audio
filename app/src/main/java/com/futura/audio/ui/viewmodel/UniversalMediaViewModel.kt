@@ -18,31 +18,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-data class MediaHubUiState(
-    val allItems: List<MediaItem> = emptyList(),
-    val searchQuery: String = "",
-    val isLoading: Boolean = false,
-    val errorMessage: String? = null,
-    val selectedCategory: PipelineCategory = PipelineCategory.COMPLIANT_STANDARD,
-    val activeWebViewUrl: String? = null
-) {
-    // Backward compatibility alias so legacy references to `state.items` continue to work
-    val items: List<MediaItem> get() = allItems
-
-    val filteredItems: List<MediaItem> get() {
-        return allItems.filter { item ->
-            val matchesCategory = item.category == selectedCategory
-            val matchesQuery = searchQuery.isBlank() ||
-                item.title.contains(searchQuery, ignoreCase = true) ||
-                (item.artist?.contains(searchQuery, ignoreCase = true) == true) ||
-                item.sourceName.contains(searchQuery, ignoreCase = true) ||
-                item.subcategory.value.contains(searchQuery, ignoreCase = true)
-
-            matchesCategory && matchesQuery
-        }
-    }
-}
-
 @HiltViewModel
 class UniversalMediaViewModel @Inject constructor(
     private val repository: MusicSourceRepository,
