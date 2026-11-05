@@ -1,6 +1,5 @@
 package com.futura.audio.domain
 
-import kotlinx.serialization.Serializable
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.ZERO
 import java.util.UUID
@@ -12,18 +11,15 @@ enum class PlaybackRoute {
     WEB_EMBED_CONTAINER 
 }
 
-@Serializable
 @JvmInline
 value class MediaId(val value: String) {
     init { require(value.isNotBlank()) }
     companion object { fun random() = MediaId(UUID.randomUUID().toString()) }
 }
 
-@Serializable
 @JvmInline
 value class Subcategory(val value: String)
 
-@Serializable
 data class MediaItem(
     val id: MediaId,
     val title: String,
