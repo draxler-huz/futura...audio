@@ -100,6 +100,7 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -147,14 +148,11 @@ import com.futura.ui.viewmodel.NowPlayingViewModel
  * @param onDjStudio    Navigates to the Phase 4 DJ Studio.
  * @param onVisualizer  Navigates to the Phase 5 Visualizer Deck.
  * @param onPrivacy     Navigates to the Phase 6 Privacy Vault.
+ * @param onExtraction  Opens the media extraction tools.
  * @param modifier      Optional outer modifier.
  *
- * Signature compatibility:
- *   MainActivity.kt currently declares
- *     NowPlayingPlaceholder(onAlarmDeck, onLibrary, onDjStudio,
- *                           onVisualizer, onPrivacy)
- *   This screen exposes exactly the same five parameters in the same
- *   order, so the swap is a single rename at the callsite.
+ * MainActivity passes the navigation callbacks, including the extraction
+ * route, to this screen.
  */
 @Composable
 fun NowPlayingScreen(
@@ -163,6 +161,7 @@ fun NowPlayingScreen(
     onDjStudio: () -> Unit,
     onVisualizer: () -> Unit,
     onPrivacy: () -> Unit,
+    onExtraction: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: NowPlayingViewModel = hiltViewModel()
 ) {
@@ -228,7 +227,16 @@ fun NowPlayingScreen(
                 hasSyncedLyrics = uiState.hasSyncedLyrics
             )
 
-            Spacer(Modifier.height(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                OutlinedButton(onClick = onExtraction) {
+                    Text("Test Extraction Engine")
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
 
             MultiPanelDeck(
                 modifier = Modifier
