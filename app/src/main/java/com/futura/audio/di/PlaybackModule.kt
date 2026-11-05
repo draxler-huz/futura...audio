@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.exoplayer.ExoPlayer
+import com.futura.audio.pipeline.advanced.HeaderSpoofingInterceptor
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -19,8 +20,9 @@ object PlaybackModule {
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(): OkHttpClient {
+    fun provideOkHttpClient(headerInterceptor: HeaderSpoofingInterceptor): OkHttpClient {
         return OkHttpClient.Builder()
+            .addInterceptor(headerInterceptor)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .followRedirects(true)
@@ -40,11 +42,9 @@ object PlaybackModule {
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .build()
 
-        return ExoPlayer.Builder(context)
-            .build()
-            .apply {
-                setAudioAttributes(audioAttributes, true)
-                setHandleAudioBecomingNoisy(true)
-            }
+        return ExoPlayer.Builder(context).build().apply {
+            setAudioAttributes(audioAttributes, true)
+            setHandleAudioBecomingNoisy(true)
+        }
     }
 }
