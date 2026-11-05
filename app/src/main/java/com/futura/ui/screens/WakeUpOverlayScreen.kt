@@ -157,6 +157,8 @@ import java.util.Locale
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.futura.ui.theme.AlarmGreen
+import com.futura.ui.components.AnalogClockFace
 
 // ═════════════════════════════════════════════════════════════════════════
 // Entry point
@@ -264,7 +266,11 @@ fun WakeUpOverlayScreen(
                     .weight(1f),
                 contentAlignment = Alignment.Center
             ) {
-                CoreTimeSurface(currentTimeText = timeText)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    AnalogClockFace(time = currentTime, modifier = Modifier.size(180.dp))
+                    Spacer(Modifier.height(16.dp))
+                    CoreTimeSurface(currentTimeText = timeText)
+                }
             }
 
             ActionDock(
@@ -300,7 +306,7 @@ private fun TopStatusBar(
 @Composable
 private fun AlarmBadge(alarmTimeLabel: String?) {
     val isArmed = alarmTimeLabel != null
-    val accent = if (isArmed) FuturaColors.Emerald else FuturaColors.TextTertiary
+    val accent = if (isArmed) AlarmGreen else FuturaColors.TextTertiary
     val iconRes = if (isArmed) R.drawable.ic_alarm else R.drawable.ic_alarm_off
     val label = if (isArmed) {
         stringResource(R.string.wake_alarm_armed_format, alarmTimeLabel!!)
@@ -352,7 +358,7 @@ private fun AudioOutputIndicator(
             .background(FuturaColors.SurfaceBase.copy(alpha = 0.55f))
             .border(
                 width = 1.dp,
-                color = FuturaColors.Cyan.copy(alpha = 0.35f),
+                color = AlarmGreen.copy(alpha = 0.35f),
                 shape = RoundedCornerShape(20.dp)
             )
             .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -362,12 +368,12 @@ private fun AudioOutputIndicator(
         Icon(
             imageVector = Icons.Filled.Speaker,
             contentDescription = stringResource(R.string.wake_cd_audio_output),
-            tint = FuturaColors.Cyan,
+            tint = AlarmGreen,
             modifier = Modifier.size(14.dp)
         )
         Text(
             text = text,
-            color = FuturaColors.Cyan,
+            color = AlarmGreen,
             fontSize = 10.sp,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Medium,
@@ -419,8 +425,8 @@ private fun CoreTimeSurface(currentTimeText: String) {
                     drawRect(
                         brush = Brush.radialGradient(
                             colors = listOf(
-                                FuturaColors.Emerald.copy(alpha = 0.24f),
-                                FuturaColors.Emerald.copy(alpha = 0.06f),
+                                AlarmGreen.copy(alpha = 0.24f),
+                                AlarmGreen.copy(alpha = 0.06f),
                                 Color.Transparent
                             ),
                             center = Offset(size.width / 2f, size.height / 2f),
@@ -433,7 +439,7 @@ private fun CoreTimeSurface(currentTimeText: String) {
             Text(
                 text = currentTimeText,
                 style = MaterialTheme.typography.displayLarge,
-                color = FuturaColors.Emerald,
+                color = AlarmGreen,
                 textAlign = TextAlign.Center,
                 maxLines = 1
             )
@@ -445,7 +451,7 @@ private fun CoreTimeSurface(currentTimeText: String) {
         // used on the launcher shortcut labels and the alarm badge.
         Text(
             text = stringResource(R.string.wake_status_roulette_ready),
-            color = FuturaColors.Emerald.copy(alpha = pulse),
+            color = AlarmGreen.copy(alpha = pulse),
             fontSize = 12.sp,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Medium,
@@ -482,7 +488,7 @@ private fun SnoozeButton(onClick: () -> Unit) {
             .height(72.dp),
         shape = RoundedCornerShape(36.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = FuturaColors.Emerald,
+            containerColor = AlarmGreen,
             contentColor = FuturaColors.OLEDBlack
         )
     ) {
@@ -559,7 +565,7 @@ private fun SwipeDismissTrack(
             .background(FuturaColors.SurfaceBase.copy(alpha = 0.55f))
             .border(
                 width = 1.dp,
-                color = FuturaColors.Cyan.copy(alpha = 0.4f),
+                color = AlarmGreen.copy(alpha = 0.4f),
                 shape = RoundedCornerShape(trackHeightDp / 2)
             )
             .onSizeChanged { trackWidthPx = it.width }
@@ -594,7 +600,7 @@ private fun SwipeDismissTrack(
             modifier = Modifier
                 .align(Alignment.Center)
                 .padding(horizontal = 24.dp),
-            color = FuturaColors.Cyan.copy(
+            color = AlarmGreen.copy(
                 alpha = (0.85f - visualProgress * 0.85f)
                     .coerceIn(0f, 0.85f)
             ),
@@ -619,10 +625,10 @@ private fun SwipeDismissTrack(
                 .padding(vertical = innerPaddingDp)
                 .size(handleSizeDp)
                 .clip(CircleShape)
-                .background(FuturaColors.Cyan)
+                .background(AlarmGreen)
                 .border(
                     width = 2.dp,
-                    color = FuturaColors.Cyan.copy(alpha = 0.6f),
+                    color = AlarmGreen.copy(alpha = 0.6f),
                     shape = CircleShape
                 ),
             contentAlignment = Alignment.Center

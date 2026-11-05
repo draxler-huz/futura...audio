@@ -43,6 +43,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.futura.ui.theme.FuturaColors
 import com.futura.ui.viewmodel.VaultSecurityViewModel
 import kotlinx.coroutines.delay
+import com.futura.ui.theme.AlarmGreen
+import com.futura.ui.theme.AlarmKeyBackground
 
 /**
  * Gate in front of the vault. Offers a biometric prompt and a 6-digit PIN.
@@ -162,12 +164,12 @@ fun VaultSecurityScreen(
                 modifier = Modifier
                     .size(width = 220.dp, height = 48.dp)
                     .clip(RoundedCornerShape(24.dp))
-                    .border(1.dp, FuturaColors.Cyan, RoundedCornerShape(24.dp))
+                    .border(1.dp, AlarmGreen, RoundedCornerShape(24.dp))
                     .clickable(enabled = !state.busy && !locked && activity != null) {
                         activity?.let { viewModel.unlockWithBiometrics(it, onUnlocked) }
                     }
             ) {
-                Text(text = "Use fingerprint or face", color = FuturaColors.Cyan, fontSize = 14.sp)
+                Text(text = "Use fingerprint or face", color = AlarmGreen, fontSize = 14.sp)
             }
         }
 
@@ -208,7 +210,7 @@ internal fun PinDots(filled: Int, total: Int) {
                 modifier = Modifier
                     .size(14.dp)
                     .clip(CircleShape)
-                    .background(if (index < filled) FuturaColors.Cyan else FuturaColors.SurfaceRecessed)
+                    .background(if (index < filled) AlarmGreen else FuturaColors.SurfaceRecessed)
             )
         }
     }
@@ -249,12 +251,12 @@ private fun KeyButton(label: String, enabled: Boolean, onClick: () -> Unit) {
         modifier = Modifier
             .size(72.dp)
             .clip(RoundedCornerShape(36.dp))
-            .background(FuturaColors.SurfaceRaised)
+            .background(AlarmKeyBackground)
             .clickable(enabled = enabled, onClick = onClick)
     ) {
         Text(
             text = label,
-            color = if (enabled) FuturaColors.TextPrimary else FuturaColors.TextDisabled,
+            color = if (enabled) AlarmGreen else FuturaColors.TextDisabled,
             fontSize = 22.sp,
             fontWeight = FontWeight.Medium
         )
