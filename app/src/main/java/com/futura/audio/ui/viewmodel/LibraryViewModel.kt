@@ -56,13 +56,22 @@ class LibraryViewModel @Inject constructor(
     fun addFiles(uris: List<Uri>) {
         viewModelScope.launch {
             try {
-                val items = uris.map { uri ->
+                val playable = uris.filter { handler.isPlayable(it) }
+                if (playable.isEmpty()) {
+                    _error.value = "Those files are not audio or video Futura can play."
+                    return@launch
+                }
+                val items = playable.map { uri ->
                     handler.persistReadAccess(uri)
                     handler.itemFor(uri)
                 }
                 handler.addToLibrary(items)
                 _items.value = store.load()
-                _error.value = null
+                _error.value = if (playable.size < uris.size) {
+                    "${uris.size - playable.size} file(s) skipped: not audio or video."
+                } else {
+                    null
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

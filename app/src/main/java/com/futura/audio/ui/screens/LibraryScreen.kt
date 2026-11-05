@@ -89,7 +89,7 @@ fun LibraryScreen(
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
-                onClick = { pickFiles.launch(arrayOf("audio/*", "video/*", "application/ogg")) }
+                onClick = { pickFiles.launch(arrayOf("audio/*", "video/*", "application/ogg", "application/octet-stream")) }
             ) { Text("Add files") }
             OutlinedButton(
                 onClick = {

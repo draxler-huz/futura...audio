@@ -92,6 +92,9 @@ class IncomingMediaHandler @Inject constructor(
             intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
         }
 
+    /** True when the file is audio or video by MIME type or by its real file name. */
+    fun isPlayable(uri: Uri): Boolean = isMedia(contentType(uri), uri)
+
     private fun isMedia(type: String?, uri: Uri): Boolean {
         if (type != null && isMediaType(type)) return true
         return extension(uri) in MEDIA_EXTENSIONS
@@ -106,7 +109,7 @@ class IncomingMediaHandler @Inject constructor(
     }
 
     private fun extension(uri: Uri): String =
-        uri.lastPathSegment?.substringAfterLast('.', "")?.lowercase().orEmpty()
+        (displayName(uri) ?: uri.lastPathSegment)?.substringAfterLast('.', "")?.lowercase().orEmpty()
 
     private fun contentType(uri: Uri): String? =
         try {
@@ -128,7 +131,7 @@ class IncomingMediaHandler @Inject constructor(
     private companion object {
         val VIDEO_EXTENSIONS = setOf("mp4", "m4v", "mkv", "webm", "mov", "3gp", "ts", "m2ts")
         val AUDIO_EXTENSIONS = setOf(
-            "mp3", "m4a", "aac", "ogg", "oga", "opus", "flac", "wav", "amr", "mka"
+            "mp3", "m4a", "aac", "ogg", "oga", "opus", "flac", "wav", "amr", "mka", "mxx"
         )
         val MEDIA_EXTENSIONS = AUDIO_EXTENSIONS + VIDEO_EXTENSIONS
     }
