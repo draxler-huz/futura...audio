@@ -20,7 +20,7 @@ import okhttp3.Request
 /**
  * Downloads a direct audio or video file into the app cache.
  *
- * Only responses whose Content-Type is audio/* or video/* are kept. Web pages
+ * Only responses whose Content-Type is an audio or video type are kept. Web pages
  * are refused, so this never saves a page or pulls media out of one. Requests
  * use the normal client identity: no spoofed headers and no proxy.
  *
