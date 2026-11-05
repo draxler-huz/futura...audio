@@ -43,12 +43,23 @@ class FuturaQsTileService : TileService() {
         }
     }
 
+    /**
+     * Shows the current track while something is loaded (playing or paused),
+     * otherwise the alarm status.
+     */
     private fun refreshTile() {
         val tile = qsTile ?: return
-        val anyEnabled = store.specs.value.any { it.enabled }
-        tile.state = if (anyEnabled) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
-        tile.label = "Futura"
-        tile.subtitle = if (anyEnabled) "Alarm on" else "No alarms"
+        val title = NowPlayingSnapshot.title?.takeIf { it.isNotBlank() }
+        if (title != null) {
+            tile.state = Tile.STATE_ACTIVE
+            tile.label = if (NowPlayingSnapshot.isPlaying) "Now playing" else "Paused"
+            tile.subtitle = title.take(24)
+        } else {
+            val anyEnabled = store.specs.value.any { it.enabled }
+            tile.state = if (anyEnabled) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+            tile.label = "Futura"
+            tile.subtitle = if (anyEnabled) "Alarm on" else "No alarms"
+        }
         tile.updateTile()
     }
 }

@@ -503,27 +503,35 @@ private fun MainNavHost(
                 onDismiss = onFinish
             )
         }
+        // The music side (Now Playing, Library, Media Hub) is gated by the vault PIN.
+        // Playback itself is not locked; only these screens are.
         composable(MainRoute.NowPlaying.route) {
-            NowPlayingScreen(
-                onAlarmDeck = { navController.navigateSingleTop(MainRoute.WakeUpOverlay) },
-                onLibrary = { navController.navigateSingleTop(MainRoute.Library) },
-                onDjStudio = { navController.navigateSingleTop(MainRoute.DjStudio) },
-                onVisualizer = { navController.navigateSingleTop(MainRoute.VisualizerDeck) },
-                onPrivacy = { navController.navigateSingleTop(MainRoute.PrivacyVault) }
-            )
+            MusicGate(onCancel = { navController.popBackStack() }) {
+                NowPlayingScreen(
+                    onAlarmDeck = { navController.navigateSingleTop(MainRoute.WakeUpOverlay) },
+                    onLibrary = { navController.navigateSingleTop(MainRoute.Library) },
+                    onDjStudio = { navController.navigateSingleTop(MainRoute.DjStudio) },
+                    onVisualizer = { navController.navigateSingleTop(MainRoute.VisualizerDeck) },
+                    onPrivacy = { navController.navigateSingleTop(MainRoute.PrivacyVault) }
+                )
+            }
         }
         composable(MainRoute.Library.route) {
-            LibraryScreen(
-                onOpenNowPlaying = { navController.navigateSingleTop(MainRoute.NowPlaying) },
-                onOpenMediaHub = { navController.navigateSingleTop(MainRoute.MediaHub) }
-            )
+            MusicGate(onCancel = { navController.popBackStack() }) {
+                LibraryScreen(
+                    onOpenNowPlaying = { navController.navigateSingleTop(MainRoute.NowPlaying) },
+                    onOpenMediaHub = { navController.navigateSingleTop(MainRoute.MediaHub) }
+                )
+            }
         }
         composable(MainRoute.MediaHub.route) {
-            val vm: UniversalMediaViewModel = hiltViewModel()
-            UniversalMediaScreen(
-                viewModel = vm,
-                onBackClick = { navController.popBackStack() }
-            )
+            MusicGate(onCancel = { navController.popBackStack() }) {
+                val vm: UniversalMediaViewModel = hiltViewModel()
+                UniversalMediaScreen(
+                    viewModel = vm,
+                    onBackClick = { navController.popBackStack() }
+                )
+            }
         }
         composable(MainRoute.DjStudio.route) {
             DjStudioPlaceholder(

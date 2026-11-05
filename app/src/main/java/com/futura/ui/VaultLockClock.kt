@@ -11,9 +11,20 @@ object VaultLockClock {
     @Volatile
     private var lockedAtMs: Long? = null
 
+    /** True while the music side is open after a PIN unlock. */
+    @Volatile
+    private var open: Boolean = false
+
     fun markLocked(now: Long = System.currentTimeMillis()) {
         lockedAtMs = now
+        open = false
     }
+
+    fun markOpen() {
+        open = true
+    }
+
+    fun isOpen(): Boolean = open
 
     fun withinGrace(now: Long = System.currentTimeMillis()): Boolean {
         val locked = lockedAtMs ?: return false
