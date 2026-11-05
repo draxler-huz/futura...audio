@@ -8,6 +8,7 @@ import com.futura.audio.domain.PipelineCategory
 import com.futura.audio.domain.PlaybackRoute
 import com.futura.audio.pipeline.advanced.PlaylistResolver
 import com.futura.audio.pipeline.compliant.MusicSourceRepository
+import com.futura.audio.playback.ExoPlayerQueueManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,11 +18,37 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+data class MediaHubUiState(
+    val allItems: List<MediaItem> = emptyList(),
+    val searchQuery: String = "",
+    val isLoading: Boolean = false,
+    val errorMessage: String? = null,
+    val selectedCategory: PipelineCategory = PipelineCategory.COMPLIANT_STANDARD,
+    val activeWebViewUrl: String? = null
+) {
+    // Backward compatibility alias so legacy references to `state.items` continue to work
+    val items: List<MediaItem> get() = allItems
+
+    val filteredItems: List<MediaItem> get() {
+        return allItems.filter { item ->
+            val matchesCategory = item.category == selectedCategory
+            val matchesQuery = searchQuery.isBlank() ||
+                item.title.contains(searchQuery, ignoreCase = true) ||
+                (item.artist?.contains(searchQuery, ignoreCase = true) == true) ||
+                item.sourceName.contains(searchQuery, ignoreCase = true) ||
+                item.subcategory.value.contains(searchQuery, ignoreCase = true)
+
+            matchesCategory && matchesQuery
+        }
+    }
+}
+
 @HiltViewModel
 class UniversalMediaViewModel @Inject constructor(
     private val repository: MusicSourceRepository,
     private val store: SavedSourcesStore,
-    private val playlistResolver: PlaylistResolver
+    private val playlistResolver: PlaylistResolver,
+    private val queueManager: ExoPlayerQueueManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MediaHubUiState())
@@ -31,7 +58,8 @@ class UniversalMediaViewModel @Inject constructor(
         // Show previously saved sources when the hub opens.
         viewModelScope.launch {
             try {
-                _uiState.update { it.copy(items = store.load()) }
+                val loaded = store.load()
+                _uiState.update { it.copy(allItems = loaded) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -44,7 +72,11 @@ class UniversalMediaViewModel @Inject constructor(
         _uiState.update { it.copy(selectedCategory = category) }
     }
 
-    fun processAndAddUrl(url: String, category: PipelineCategory) {
+    fun onSearchQueryChanged(query: String) {
+        _uiState.update { it.copy(searchQuery = query) }
+    }
+
+    fun processAndAddUrl(url: String, category: PipelineCategory = _uiState.value.selectedCategory) {
         if (url.isBlank()) return
 
         // Accept "example.com/feed" as well as full links; OkHttp needs a scheme.
@@ -61,19 +93,20 @@ class UniversalMediaViewModel @Inject constructor(
 
                 _uiState.update { state ->
                     state.copy(
-                        items = resolvedItems + state.items,
+                        allItems = resolvedItems + state.allItems,
                         isLoading = false
                     )
                 }
 
                 // Persist everything the hub holds, so the Library sees it.
-                store.save(_uiState.value.items.distinctBy { it.id })
+                store.save(_uiState.value.allItems.distinctBy { it.id })
 
-                // Auto-play only the direct items. Web embeds are never sent to ExoPlayer.
-                repository.playDirect(resolvedItems)
+                // Auto-play direct items via ExoPlayer queue manager
+                if (resolvedItems.isNotEmpty() && resolvedItems.first().route == PlaybackRoute.EXOPLAYER_DIRECT) {
+                    queueManager.loadAndPlayQueue(resolvedItems)
+                }
 
             } catch (e: CancellationException) {
-                // Rethrow so cancellation of viewModelScope is not swallowed as an error.
                 throw e
             } catch (e: Exception) {
                 _uiState.update { state ->
@@ -87,8 +120,14 @@ class UniversalMediaViewModel @Inject constructor(
     }
 
     /**
-     * Category 2 currently handles playlists the publisher offers
-     * (.m3u, .pls). Other links are refused with a message.
+     * Overload for simpler calls passing just the URL using the currently selected category.
+     */
+    fun processAndAddUrl(url: String) {
+        processAndAddUrl(url, _uiState.value.selectedCategory)
+    }
+
+    /**
+     * Category 2 currently handles playlists the publisher offers (.m3u, .pls).
      */
     private suspend fun resolveAdvanced(url: String): List<MediaItem> {
         val path = url.substringBefore('?').lowercase()
@@ -102,14 +141,10 @@ class UniversalMediaViewModel @Inject constructor(
     fun onMediaItemClicked(item: MediaItem) {
         when (item.route) {
             PlaybackRoute.EXOPLAYER_DIRECT -> {
-                viewModelScope.launch {
-                    try {
-                        repository.playDirect(listOf(item))
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        _uiState.update { it.copy(errorMessage = e.localizedMessage ?: "Playback failed") }
-                    }
+                try {
+                    queueManager.loadAndPlayQueue(listOf(item))
+                } catch (e: Exception) {
+                    _uiState.update { it.copy(errorMessage = e.localizedMessage ?: "Playback failed") }
                 }
             }
             PlaybackRoute.WEB_EMBED_CONTAINER -> {
@@ -118,8 +153,12 @@ class UniversalMediaViewModel @Inject constructor(
         }
     }
 
-    fun dismissWebViewContainer() {
+    fun dismissWebView() {
         _uiState.update { it.copy(activeWebViewUrl = null) }
+    }
+
+    fun dismissWebViewContainer() {
+        dismissWebView()
     }
 
     fun clearError() {
