@@ -31,8 +31,7 @@ fun ExtractedTrack.toMediaItem(): MediaItem = MediaItem(
     duration = durationMs.milliseconds,
     category = PipelineCategory.COMPLIANT_STANDARD,
     route = PlaybackRoute.EXOPLAYER_DIRECT,
-    // ExtractedTrack has no video flag yet, so every track projects as audio.
-    isVideo = false
+    isVideo = isVideo
 )
 
 /**

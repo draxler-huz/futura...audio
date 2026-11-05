@@ -254,6 +254,10 @@ class MediaExtractorService @Inject constructor(
 
             val ext = file.extension.lowercase()
             val category = TrackCategory.fromExtension(ext)
+            // HAS_VIDEO is "yes" only when the container has a video track.
+            val hasVideo = retriever.extractMetadata(
+                MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO
+            ) == "yes"
 
             return ExtractedTrack(
                 id = stableIdFor(file.absolutePath),
@@ -268,7 +272,8 @@ class MediaExtractorService @Inject constructor(
                 artist = artist,
                 album = album,
                 addedAtMs = System.currentTimeMillis(),
-                lastScannedAtMs = System.currentTimeMillis()
+                lastScannedAtMs = System.currentTimeMillis(),
+                isVideo = hasVideo
             )
         } catch (e: Exception) {
             // MediaMetadataRetriever throws IllegalArgumentException for

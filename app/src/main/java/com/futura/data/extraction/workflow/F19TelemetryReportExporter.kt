@@ -202,6 +202,7 @@ class F19TelemetryReportExporter @Inject constructor() {
         put("quarantined", t.quarantined)
         put("quarantineReason", t.quarantineReason)
         put("assignedToAlarm", t.assignedToAlarm)
+        put("isVideo", t.isVideo)
     }
 
     private fun trackToCsvRow(t: ExtractedTrack): String = buildString {
@@ -230,7 +231,8 @@ class F19TelemetryReportExporter @Inject constructor() {
         append(t.stemsAvailable); append(',')
         append(csvField(t.duplicateOf.orEmpty())); append(',')
         append(t.quarantined); append(',')
-        append(t.assignedToAlarm)
+        append(t.assignedToAlarm); append(',')
+        append(t.isVideo)
     }
 
     /** Unknown (null) telemetry becomes an empty field, not 0. */
@@ -249,6 +251,6 @@ class F19TelemetryReportExporter @Inject constructor() {
             "id,filePath,fileName,sizeBytes,format,category,durationMs,bitrateKbps," +
                 "title,artist,album,sampleRateHz,channelCount,bitDepth,isVbr," +
                 "silentLeadingMs,silentTrailingMs,bpm,replayGainDb,loopStartMs," +
-                "loopEndMs,fadeCurveMs,stemsAvailable,duplicateOf,quarantined,assignedToAlarm"
+                "loopEndMs,fadeCurveMs,stemsAvailable,duplicateOf,quarantined,assignedToAlarm,isVideo"
     }
 }

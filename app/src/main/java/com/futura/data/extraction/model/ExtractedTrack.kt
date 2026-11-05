@@ -54,7 +54,10 @@ data class ExtractedTrack(
     val duplicateOf: String? = null,
     val quarantined: Boolean = false,
     val quarantineReason: String? = null,
-    val assignedToAlarm: Boolean = false
+    val assignedToAlarm: Boolean = false,
+
+    // Set from MediaMetadataRetriever's HAS_VIDEO key. Video files play with a picture.
+    val isVideo: Boolean = false
 ) {
     /** True if this track has been flagged as a duplicate of another. */
     val isDuplicate: Boolean get() = duplicateOf != null
