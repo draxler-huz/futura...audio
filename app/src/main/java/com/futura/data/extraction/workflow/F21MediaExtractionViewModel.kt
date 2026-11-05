@@ -16,7 +16,7 @@ import com.futura.data.extraction.MediaExtractorService
 import com.futura.data.extraction.StemSeparationHook
 import com.futura.data.extraction.UrlExtractor
 import com.futura.data.extraction.VoiceEnhancerFilter
-import com.futura.data.extraction.model.ExtractedMediaItem
+import com.futura.data.extraction.model.ExtractedTrack
 import com.futura.data.extraction.model.ExtractionFilter
 import com.futura.data.extraction.model.ExtractionState
 import com.futura.data.extraction.model.TrackCategory
@@ -80,11 +80,11 @@ class F21MediaExtractionViewModel @Inject constructor(
     // Public state
     // ═══════════════════════════════════════════════════════════════
 
-    private val _mediaCatalog = MutableStateFlow<List<ExtractedMediaItem>>(emptyList())
-    val mediaCatalog: StateFlow<List<ExtractedMediaItem>> = _mediaCatalog.asStateFlow()
+    private val _mediaCatalog = MutableStateFlow<List<ExtractedTrack>>(emptyList())
+    val mediaCatalog: StateFlow<List<ExtractedTrack>> = _mediaCatalog.asStateFlow()
     
     // Alias
-    val tracks: StateFlow<List<ExtractedMediaItem>> get() = mediaCatalog
+    val tracks: StateFlow<List<ExtractedTrack>> get() = mediaCatalog
 
     private val _currentFilter = MutableStateFlow<ExtractionFilter>(ExtractionFilter.ALL)
     val currentFilter: StateFlow<ExtractionFilter> = _currentFilter.asStateFlow()
@@ -92,7 +92,7 @@ class F21MediaExtractionViewModel @Inject constructor(
     // Alias
     val filter: StateFlow<ExtractionFilter> get() = currentFilter
 
-    val filteredCatalog: StateFlow<List<ExtractedMediaItem>> =
+    val filteredCatalog: StateFlow<List<ExtractedTrack>> =
         combine(_mediaCatalog, _currentFilter) { catalog, f ->
             if (f === ExtractionFilter.ALL) catalog
             else catalog.filter { f.matches(it) }
@@ -103,7 +103,7 @@ class F21MediaExtractionViewModel @Inject constructor(
         )
         
     // Alias
-    val filteredTracks: StateFlow<List<ExtractedMediaItem>> get() = filteredCatalog
+    val filteredTracks: StateFlow<List<ExtractedTrack>> get() = filteredCatalog
 
     private val _extractionState = MutableStateFlow<ExtractionState>(ExtractionState.Idle)
     val extractionState: StateFlow<ExtractionState> = _extractionState.asStateFlow()
@@ -592,13 +592,13 @@ class F21MediaExtractionViewModel @Inject constructor(
     fun providerName(): String = cloudSync.providerName
     fun quarantineDirectory(): File = quarantine.quarantineDir()
 
-    private fun findTrack(id: String): ExtractedMediaItem? = _mediaCatalog.value.firstOrNull { it.id == id }
+    private fun findTrack(id: String): ExtractedTrack? = _mediaCatalog.value.firstOrNull { it.id == id }
 
-    private fun updateTrack(id: String, transform: (ExtractedMediaItem) -> ExtractedMediaItem) {
+    private fun updateTrack(id: String, transform: (ExtractedTrack) -> ExtractedTrack) {
         _mediaCatalog.update { list -> list.map { if (it.id == id) transform(it) else it } }
     }
 
-    private fun replaceTrack(updated: ExtractedMediaItem) {
+    private fun replaceTrack(updated: ExtractedTrack) {
         _mediaCatalog.update { list -> list.map { if (it.id == updated.id) updated else it } }
     }
 
