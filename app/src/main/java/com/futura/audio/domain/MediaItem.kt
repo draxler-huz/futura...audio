@@ -1,23 +1,51 @@
 package com.futura.audio.domain
 
-enum class PlaybackRoute {
-    /** Direct audio URL, played by ExoPlayer. */
-    EXOPLAYER_DIRECT,
+import kotlinx.serialization.Serializable
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.ZERO
+import java.util.UUID
 
-    /** Web page or embed, shown in the WebView container. Never sent to ExoPlayer. */
-    WEB_EMBED_CONTAINER
+enum class PipelineCategory { 
+    COMPLIANT_STANDARD, 
+    ADVANCED_EXTRACTION 
 }
 
+enum class PlaybackRoute { 
+    EXOPLAYER_DIRECT, 
+    WEB_EMBED_CONTAINER 
+}
+
+@Serializable
+@JvmInline
+value class MediaId(val value: String) {
+    init { require(value.isNotBlank()) }
+    companion object { fun random() = MediaId(UUID.randomUUID().toString()) }
+}
+
+@Serializable
+@JvmInline
+value class Subcategory(val value: String)
+
+@Serializable
 data class MediaItem(
-    val id: String,
+    val id: MediaId,
     val title: String,
-    val artist: String?,
-    val streamUrl: String,       // Direct audio enclosure or web fallback URL
-    val artworkUrl: String?,
-    val sourceName: String,      // e.g., "Podcast RSS", "Official Web Embed", "Direct Stream"
-    val subcategory: String,     // e.g., "syndication.rss", "metadata.opengraph"
-    val durationMs: Long = 0L,
-    val route: PlaybackRoute = PlaybackRoute.EXOPLAYER_DIRECT,
-    val category: PipelineCategory = PipelineCategory.COMPLIANT_STANDARD,  // UI filter and accent color
-    val isVideo: Boolean = false                                            // played with a picture
-)
+    val artist: String? = null,
+    val streamUrl: String,
+    val artworkUrl: String? = null,
+    val sourceName: String,
+    val subcategory: Subcategory,
+    val duration: Duration? = null,
+    val category: PipelineCategory,
+    val route: PlaybackRoute,
+    val isVideo: Boolean = false
+) {
+    init {
+        require(title.isNotBlank()) { "title must not be blank" }
+        require(streamUrl.isNotBlank()) { "streamUrl must not be blank" }
+        require(sourceName.isNotBlank()) { "sourceName must not be blank" }
+        require(duration == null || duration >= ZERO) { "duration must be >= 0" }
+    }
+
+    val durationMs: Long get() = duration?.inWholeMilliseconds ?: 0L
+}
