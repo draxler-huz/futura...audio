@@ -103,12 +103,21 @@ class LibraryViewModel @Inject constructor(
      * Direct audio goes to ExoPlayer, then [onPlaying] opens Now Playing.
      * Video plays through the same player and shows its picture instead.
      * Web embeds open in the WebView dialog and never reach ExoPlayer.
+     *
+     * [queue] is the visible list the item was tapped from. Only items of
+     * the same kind (audio or video) are queued, so Next and automatic
+     * advance stay within the list and keep the right view.
      */
-    fun play(item: MediaItem, onPlaying: () -> Unit) {
+    fun play(item: MediaItem, queue: List<MediaItem> = listOf(item), onPlaying: () -> Unit) {
         when (item.route) {
             PlaybackRoute.EXOPLAYER_DIRECT -> viewModelScope.launch {
                 try {
-                    repository.playDirect(listOf(item))
+                    val sameKind = queue.filter {
+                        it.route == PlaybackRoute.EXOPLAYER_DIRECT && it.isVideo == item.isVideo
+                    }
+                    val direct = if (sameKind.any { it.id == item.id }) sameKind else listOf(item)
+                    val start = direct.indexOfFirst { it.id == item.id }.coerceAtLeast(0)
+                    repository.playDirect(direct, start)
                     _error.value = null
                     if (item.isVideo) videoState.show() else onPlaying()
                 } catch (e: CancellationException) {

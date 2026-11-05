@@ -18,11 +18,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -50,6 +55,10 @@ fun LibraryScreen(
     val error by viewModel.error.collectAsStateWithLifecycle()
     val scanning by viewModel.scanning.collectAsStateWithLifecycle()
     val context = LocalContext.current
+
+    // Music and Videos tabs. Video is recognised by the item's isVideo flag.
+    var tab by rememberSaveable { mutableStateOf(0) }
+    val visibleItems = savedItems.filter { if (tab == 0) !it.isVideo else it.isVideo }
 
     // Reload each time the screen is shown, so sources added elsewhere appear.
     LaunchedEffect(Unit) { viewModel.refresh() }
@@ -102,17 +111,19 @@ fun LibraryScreen(
             ) { Text(if (scanning) "Scanning..." else "Scan device") }
         }
         Spacer(Modifier.height(16.dp))
-        Text(
-            text = "SAVED MEDIA",
-            color = Color.Gray,
-            fontSize = 11.sp,
-            letterSpacing = 1.5.sp
-        )
+        TabRow(selectedTabIndex = tab, containerColor = Color(0xFF0A0C10), contentColor = Color.White) {
+            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Music") })
+            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Videos") })
+        }
         Spacer(Modifier.height(8.dp))
 
-        if (savedItems.isEmpty()) {
+        if (visibleItems.isEmpty()) {
             Text(
-                text = "No media yet. Add files, scan the device, or share a file to Futura from another app.",
+                text = if (tab == 0) {
+                    "No music yet. Add files, scan the device, or share a file to Futura from another app."
+                } else {
+                    "No videos yet. Add files, scan the device, or share a video to Futura from another app."
+                },
                 color = Color.Gray,
                 fontSize = 14.sp
             )
@@ -123,10 +134,11 @@ fun LibraryScreen(
                     .weight(1f),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                items(savedItems, key = { it.id }) { item ->
+                items(visibleItems, key = { it.id }) { item ->
                     GlassmorphicMediaCard(
                         item = item,
-                        onClick = { viewModel.play(item, onOpenNowPlaying) }
+                        // Queue the visible list so Next and auto-advance continue through it.
+                        onClick = { viewModel.play(item, visibleItems, onOpenNowPlaying) }
                     )
                 }
             }
