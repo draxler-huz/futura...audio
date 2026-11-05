@@ -34,8 +34,9 @@ import kotlinx.coroutines.sync.withLock
  * Non-audio extensions are filtered at the observer level — the flow
  * never emits for `.txt`, `.jpg`, etc.
  *
- * Each [FileObserver] covers one directory only. Changes inside subfolders
- * are not reported yet; a full re-scan picks them up.
+ * Every subfolder that exists when [start] runs gets its own observer.
+ * Folders created later are not watched until the next [start]; a full
+ * re-scan picks them up.
  *
  * Rule 6: every observer start/stop wrapped.
  * Rule 7: [mutex] guards [observers] and [start/stop] so concurrent
@@ -82,30 +83,44 @@ class ExtractionFileWatcher @Inject constructor() {
                         Log.w(tag, "Cannot watch non-directory: $dir")
                         continue
                     }
-                    val observer = object : FileObserver(
-                        dir,
-                        CREATE or MODIFY or DELETE or MOVED_FROM or MOVED_TO
-                    ) {
-                        override fun onEvent(event: Int, path: String?) {
-                            try {
-                                path ?: return
-                                val ext = path.substringAfterLast('.', "")
-                                if (ext.lowercase() !in supportedExtensions) return
-                                val fullPath = File(dir, path).absolutePath
-                                dispatch(event, fullPath)
-                            } catch (e: Exception) {
-                                Log.w(tag, "onEvent failed for $path", e)
-                            }
-                        }
+                    // The root and every visible subfolder under it.
+                    val tree = dirFile.walkTopDown()
+                        .onEnter { it == dirFile || !it.name.startsWith(".") }
+                        .filter { it.isDirectory }
+                        .map { it.absolutePath }
+                        .toList()
+                    for (sub in tree) {
+                        if (observers.containsKey(sub)) continue
+                        observers[sub] = watch(sub, supportedExtensions)
                     }
-                    observer.startWatching()
-                    observers[dir] = observer
-                    Log.i(tag, "Watching $dir")
                 } catch (e: Exception) {
                     Log.e(tag, "Failed to watch $dir", e)
                 }
             }
         }
+
+    /** Creates and starts one observer for [dir]. Events are filtered to [supportedExtensions]. */
+    private fun watch(dir: String, supportedExtensions: Set<String>): FileObserver {
+        val observer = object : FileObserver(
+            dir,
+            CREATE or MODIFY or DELETE or MOVED_FROM or MOVED_TO
+        ) {
+            override fun onEvent(event: Int, path: String?) {
+                try {
+                    path ?: return
+                    val ext = path.substringAfterLast('.', "")
+                    if (ext.lowercase() !in supportedExtensions) return
+                    val fullPath = File(dir, path).absolutePath
+                    dispatch(event, fullPath)
+                } catch (e: Exception) {
+                    Log.w(tag, "onEvent failed for $path", e)
+                }
+            }
+        }
+        observer.startWatching()
+        Log.i(tag, "Watching $dir")
+        return observer
+    }
 
     /** Stop watching [directory], if currently watched. */
     suspend fun stop(directory: String) = mutex.withLock {

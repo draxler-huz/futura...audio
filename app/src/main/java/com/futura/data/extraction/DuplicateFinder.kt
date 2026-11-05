@@ -98,8 +98,14 @@ class DuplicateFinder @Inject constructor() {
                             synchronized(results) {
                                 for ((fp, group) in fingerprints) {
                                     if (group.size >= 2) {
-                                        // Canonical = earliest added (createdAt).
-                                        val sorted = group.sortedBy { it.addedAtMs }
+                                        // Canonical = oldest file on disk, ties by path. addedAtMs is
+                                        // reset on every scan, so it cannot pick a stable original.
+                                        val sorted = group.sortedWith(
+                                            compareBy<ExtractedTrack>(
+                                                { File(it.filePath).lastModified() },
+                                                { it.filePath }
+                                            )
+                                        )
                                         results.add(
                                             DuplicateGroup(
                                                 canonicalTrackId = sorted.first().id,

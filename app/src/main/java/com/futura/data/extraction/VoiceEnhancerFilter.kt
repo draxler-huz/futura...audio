@@ -40,6 +40,10 @@ import kotlinx.coroutines.withContext
 @Singleton
 class VoiceEnhancerFilter @Inject constructor() {
 
+    /** Band gains saved by the first [apply], or null while the preset is not applied. */
+    @Volatile
+    private var savedGains: FloatArray? = null
+
     /**
      * The band gains for the "voice enhancer" preset, in dB. Index 0 =
      * 31 Hz, index 9 = 16 kHz. This is the canonical definition of the
@@ -64,6 +68,10 @@ class VoiceEnhancerFilter @Inject constructor() {
      */
     suspend fun apply(): Boolean = withContext(Dispatchers.Default) {
         try {
+            // Remember the gains from before the first apply, so clear() can restore them.
+            if (savedGains == null) {
+                savedGains = FloatArray(preset.size) { DspBridge.getEqBandGain(it) }
+            }
             DspBridge.setDspEnabled(true)
             preset.forEachIndexed { i, gain ->
                 DspBridge.setEqBandGain(i, gain)
@@ -76,15 +84,14 @@ class VoiceEnhancerFilter @Inject constructor() {
     }
 
     /**
-     * Reset all 10 bands to 0 dB. The DSP chain stays enabled.
-     *
-     * This also clears any other band settings: the engine has no way to
-     * restore the gains that were set before [apply], so a caller that
-     * uses another EQ preset must reapply it after this call.
+     * Put back the band gains that were set before [apply]. Bands that were
+     * 0 dB before are reset to 0 dB. The DSP chain stays enabled.
      */
     suspend fun clear(): Boolean = withContext(Dispatchers.Default) {
         try {
-            for (i in preset.indices) DspBridge.setEqBandGain(i, 0f)
+            val saved = savedGains ?: FloatArray(preset.size)
+            for (i in preset.indices) DspBridge.setEqBandGain(i, saved[i])
+            savedGains = null
             true
         } catch (e: Exception) {
             android.util.Log.w(TAG, "clear failed", e)
