@@ -24,7 +24,7 @@ data class ExtractionConfig(
     val maxFileSizeBytes: Long = 500L * 1024L * 1024L,
     /** Audio file extensions the scanner accepts, lowercase, without the dot. */
     val supportedExtensions: Set<String> = DEFAULT_AUDIO_EXTENSIONS,
-    /** Feature 3 — move corrupt/unreadable files to quarantine. */
+    /** Feature 3 — flag corrupt/unreadable files. They are moved only after the user confirms. */
     val quarantineEnabled: Boolean = true,
     /** Subdirectory under `context.filesDir` where quarantined files go. Single name, no separators. */
     val quarantineDirectoryName: String = "quarantine",

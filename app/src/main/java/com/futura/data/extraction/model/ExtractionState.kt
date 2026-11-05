@@ -56,7 +56,15 @@ data class ScanProgress(
 data class ScanResult(
     val tracks: List<ExtractedTrack>,
     val stats: ExtractionStats,
-    val errors: List<String>
+    val errors: List<String>,
+    /** Files flagged as corrupt. Nothing is moved until the user confirms. */
+    val quarantineCandidates: List<QuarantineCandidate> = emptyList()
+)
+
+/** A file the scanner suspects is corrupt, with the reason it was flagged. */
+data class QuarantineCandidate(
+    val filePath: String,
+    val reason: String
 )
 
 /**

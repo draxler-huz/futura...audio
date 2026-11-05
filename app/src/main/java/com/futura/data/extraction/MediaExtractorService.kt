@@ -6,6 +6,7 @@ import android.media.MediaMetadataRetriever
 import android.util.Log
 import com.futura.data.extraction.model.ExtractedTrack
 import com.futura.data.extraction.model.ExtractionStats
+import com.futura.data.extraction.model.QuarantineCandidate
 import com.futura.data.extraction.model.ScanProgress
 import com.futura.data.extraction.model.ScanResult
 import com.futura.data.extraction.model.TrackCategory
@@ -106,6 +107,7 @@ class MediaExtractorService @Inject constructor(
         // Phase 2 — analyze in parallel with bounded concurrency.
         val tracks = Collections.synchronizedList(mutableListOf<ExtractedTrack>())
         val errors = Collections.synchronizedList(mutableListOf<String>())
+        val candidates = Collections.synchronizedList(mutableListOf<QuarantineCandidate>())
         val processed = AtomicInteger(0)
         val semaphore = Semaphore(config.concurrency.coerceIn(1, 16))
 
@@ -114,7 +116,7 @@ class MediaExtractorService @Inject constructor(
                 launch {
                     semaphore.withPermit {
                         try {
-                            val track = analyzeFile(file, config)
+                            val track = analyzeFile(file, config, candidates)
                             if (track != null) tracks.add(track)
                         } catch (e: Exception) {
                             Log.w(tag, "analyzeFile threw for ${file.name}", e)
@@ -160,7 +162,12 @@ class MediaExtractorService @Inject constructor(
                 "${stats.errorCount} errors, ${stats.scanDurationMs}ms"
         )
 
-        return ScanResult(tracks = sortedTracks, stats = stats, errors = errors.toList())
+        return ScanResult(
+            tracks = sortedTracks,
+            stats = stats,
+            errors = errors.toList(),
+            quarantineCandidates = candidates.toList()
+        )
     }
 
     /**
@@ -201,7 +208,11 @@ class MediaExtractorService @Inject constructor(
      * Extract metadata for one file. Returns null if the file should be
      * skipped (too large, not readable, or corrupt).
      */
-    private fun analyzeFile(file: File, config: ExtractionConfig): ExtractedTrack? {
+    private fun analyzeFile(
+        file: File,
+        config: ExtractionConfig,
+        candidates: MutableList<QuarantineCandidate>
+    ): ExtractedTrack? {
         if (!file.exists() || !file.canRead()) return null
         if (file.length() > config.maxFileSizeBytes) {
             Log.i(tag, "Skipping oversized file: ${file.name} (${file.length()} bytes)")
@@ -221,7 +232,7 @@ class MediaExtractorService @Inject constructor(
                 // corrupt header — MediaMetadataRetriever will not throw
                 // on some formats, it just returns 0.
                 if (config.quarantineEnabled) {
-                    quarantine(file, "zero_duration", config)
+                    candidates.add(QuarantineCandidate(file.absolutePath, "zero_duration"))
                 }
                 return null
             }
@@ -263,7 +274,9 @@ class MediaExtractorService @Inject constructor(
             // files it cannot parse, IOException for unreadable sources.
             Log.w(tag, "Metadata extraction failed for ${file.name}", e)
             if (config.quarantineEnabled) {
-                quarantine(file, e.javaClass.simpleName + ": " + (e.message ?: ""), config)
+                candidates.add(
+                    QuarantineCandidate(file.absolutePath, e.javaClass.simpleName + ": " + (e.message ?: ""))
+                )
             }
             return null
         } finally {
@@ -272,18 +285,33 @@ class MediaExtractorService @Inject constructor(
     }
 
     /**
+     * Moves the files the user confirmed into the app-private quarantine
+     * directory. [scan] never moves anything itself. Returns how many moved.
+     */
+    suspend fun quarantineConfirmed(
+        confirmed: List<QuarantineCandidate>,
+        config: ExtractionConfig
+    ): Int = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            confirmed.count { candidate ->
+                quarantine(File(candidate.filePath), candidate.reason, config)
+            }
+        }
+    }
+
+    /**
      * Move [file] into the app-private quarantine directory so it is
-     * preserved for the user but excluded from scans.
+     * preserved for the user but excluded from scans. Returns true if moved.
      *
      * GROWTH (group 2): extract to `CorruptFileQuarantine.kt`. Kept
      * inline today so `MediaExtractorService` compiles standalone.
      */
-    private fun quarantine(file: File, reason: String, config: ExtractionConfig) {
+    private fun quarantine(file: File, reason: String, config: ExtractionConfig): Boolean {
         try {
             val quarantineDir = File(context.filesDir, config.quarantineDirectoryName)
             if (!quarantineDir.exists() && !quarantineDir.mkdirs()) {
                 Log.w(tag, "Cannot create quarantine dir: ${quarantineDir.absolutePath}")
-                return
+                return false
             }
             val dest = File(
                 quarantineDir,
@@ -291,12 +319,13 @@ class MediaExtractorService @Inject constructor(
             )
             if (file.renameTo(dest)) {
                 Log.i(tag, "Quarantined ${file.name}: $reason")
-            } else {
-                Log.w(tag, "renameTo failed for ${file.absolutePath} → ${dest.absolutePath}")
+                return true
             }
+            Log.w(tag, "renameTo failed for ${file.absolutePath} → ${dest.absolutePath}")
         } catch (e: Exception) {
             Log.e(tag, "quarantine failed for ${file.absolutePath}", e)
         }
+        return false
     }
 
     /**
