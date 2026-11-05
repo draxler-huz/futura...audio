@@ -66,6 +66,10 @@ fun AlarmListScreen(
     onOpenVault: () -> Unit,
     exactAlarmsAllowed: Boolean = true,
     onAllowExactAlarms: () -> Unit = {},
+    overlayAllowed: Boolean = true,
+    onAllowOverlay: () -> Unit = {},
+    fullScreenAllowed: Boolean = true,
+    onAllowFullScreen: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var filter by remember { mutableStateOf(AlarmFilter.ALL) }
@@ -103,6 +107,22 @@ fun AlarmListScreen(
 
             if (!exactAlarmsAllowed) {
                 ExactAlarmBanner(onAllow = onAllowExactAlarms)
+            }
+            if (!overlayAllowed) {
+                PermissionBanner(
+                    title = "Alarm screen is hidden",
+                    body = "Allow Futura to display over other apps so the alarm appears on top.",
+                    buttonLabel = "Allow display over apps",
+                    onAllow = onAllowOverlay
+                )
+            }
+            if (!fullScreenAllowed) {
+                PermissionBanner(
+                    title = "Full-screen alarms are off",
+                    body = "Allow full-screen notifications so alarms take over the screen.",
+                    buttonLabel = "Allow full-screen alarms",
+                    onAllow = onAllowFullScreen
+                )
             }
 
             if (alarms.isNotEmpty()) {
@@ -274,6 +294,47 @@ private fun ExactAlarmBanner(onAllow: () -> Unit) {
             )
         ) {
             Text("Allow exact alarms")
+        }
+    }
+}
+
+@Composable
+private fun PermissionBanner(
+    title: String,
+    body: String,
+    buttonLabel: String,
+    onAllow: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(FuturaColors.Amber.copy(alpha = 0.1f))
+            .border(1.dp, FuturaColors.Amber.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+            .padding(16.dp)
+    ) {
+        Text(
+            text = title,
+            color = FuturaColors.Amber,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = body,
+            color = FuturaColors.TextSecondary,
+            fontSize = 12.sp
+        )
+        Spacer(Modifier.height(10.dp))
+        Button(
+            onClick = onAllow,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = FuturaColors.Amber,
+                contentColor = FuturaColors.OLEDBlack
+            )
+        ) {
+            Text(buttonLabel)
         }
     }
 }

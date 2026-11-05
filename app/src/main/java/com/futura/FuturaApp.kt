@@ -75,9 +75,18 @@ import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import com.futura.alarm.AlarmStore
+import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 @HiltAndroidApp
 class FuturaApp : Application(), Configuration.Provider {
+
+    @Inject
+    lateinit var alarmStore: AlarmStore
 
     companion object {
         private const val TAG = "FuturaApp"
@@ -120,6 +129,9 @@ class FuturaApp : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         INSTANCE = this
+
+        // Load saved alarms so the Alarms list is populated on a fresh start.
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { alarmStore.load() }
 
         Log.i(
             TAG,

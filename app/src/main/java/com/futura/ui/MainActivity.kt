@@ -101,6 +101,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import com.futura.R
+import com.futura.alarm.OverlayPermissionHelper
 import com.futura.alarm.VaultUnlockProof
 import com.futura.audio.ui.components.UniversalMediaScreen
 import com.futura.audio.ui.screens.LibraryScreen
@@ -433,7 +434,11 @@ private fun MainNavHost(
                         Uri.parse("package:" + context.packageName)
                     ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     context.startActivity(intent)
-                }
+                },
+                overlayAllowed = OverlayPermissionHelper.canDrawOverlays(context),
+                onAllowOverlay = { OverlayPermissionHelper.requestOverlayPermission(context) },
+                fullScreenAllowed = OverlayPermissionHelper.canUseFullScreenIntent(context),
+                onAllowFullScreen = { OverlayPermissionHelper.requestFullScreenIntentPermission(context) }
             )
         }
         composable(
