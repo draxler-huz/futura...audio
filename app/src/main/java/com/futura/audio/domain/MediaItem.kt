@@ -5,10 +5,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.ZERO
 import java.util.UUID
 
-enum class PipelineCategory { 
-    COMPLIANT_STANDARD, 
-    ADVANCED_EXTRACTION 
-}
+// PipelineCategory is declared once, in PipelineCategory.kt.
 
 enum class PlaybackRoute { 
     EXOPLAYER_DIRECT, 
