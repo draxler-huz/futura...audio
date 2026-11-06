@@ -83,7 +83,9 @@ package com.futura.ui.viewmodel
 
 import android.content.Context
 import com.futura.lyrics.LrcLibLyrics
-import com.futura.lyrics.TrackLyrics
+import com.futura.data.nowplaying.LyricParser
+import com.futura.data.nowplaying.OfflineLyricSynchronizer
+import com.futura.lyrics.LyricsState
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -97,6 +99,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -268,32 +272,58 @@ class NowPlayingViewModel @Inject constructor(
     // ═════════════════════════════════════════════════════════════════════
 
     // ── Lyrics (LRCLIB) ───────────────────────────────────────────────
-    private val lyricsCache = mutableMapOf<String, TrackLyrics>()
+    private val lyricsCache = mutableMapOf<String, LyricsState>()
+    private val _lyricsState = MutableStateFlow<LyricsState>(LyricsState.Empty)
+    val lyricsState: StateFlow<LyricsState> = _lyricsState.asStateFlow()
     private var lyricsJob: Job? = null
+    private var lyricsSeq = 0
 
-    private fun showLyrics(lyrics: TrackLyrics) {
-        _uiState.update { it.copy(lyricLines = lyrics.lines, hasSyncedLyrics = lyrics.synced) }
-    }
-
-    /** Looks up lyrics for the track now playing. Each track is fetched once per session. */
+    /** Looks up lyrics for the track now playing. Each successful answer is cached for the session. */
     private fun loadLyrics(item: androidx.media3.common.MediaItem?) {
         lyricsJob?.cancel()
-        showLyrics(TrackLyrics.NONE)
-        if (item == null) return
-        val id = item.mediaId
-        lyricsCache[id]?.let {
-            showLyrics(it)
+        val duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L
+        if (item == null) {
+            publishLyrics(LyricsState.Empty, duration)
             return
         }
-        val title = item.mediaMetadata.title?.toString()?.takeIf { it.isNotBlank() } ?: return
+        val id = item.mediaId
+        lyricsCache[id]?.let {
+            publishLyrics(it, duration)
+            return
+        }
+        val title = item.mediaMetadata.title?.toString()?.takeIf { it.isNotBlank() }
+        if (title == null) {
+            publishLyrics(LyricsState.Empty, duration)
+            return
+        }
         val artist = item.mediaMetadata.artist?.toString()
-        val duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L
+        publishLyrics(LyricsState.Loading, duration)
         lyricsJob = viewModelScope.launch {
             val found = lrcLib.find(title, artist, duration)
-            lyricsCache[id] = found
-            // Drop the answer if the track changed while the lookup was running.
-            if (player.currentMediaItem?.mediaId == id) showLyrics(found)
+            // Errors are not cached, so revisiting the track retries.
+            if (found !is LyricsState.Error) lyricsCache[id] = found
+            if (player.currentMediaItem?.mediaId == id) publishLyrics(found, duration)
         }
+    }
+
+    /** Parses off the main thread, then applies the result only if it is still the latest. */
+    private fun publishLyrics(state: LyricsState, durationMs: Long) {
+        val seq = ++lyricsSeq
+        viewModelScope.launch {
+            val (lines, synced) = withContext(Dispatchers.Default) { parsedLyrics(state, durationMs) }
+            if (seq != lyricsSeq) return@launch
+            _lyricsState.value = state
+            _uiState.update { it.copy(lyricLines = lines, hasSyncedLyrics = synced) }
+        }
+    }
+
+    /** Synced lines when the source has them; otherwise plain lines spread across the track, marked unsynced. */
+    private suspend fun parsedLyrics(state: LyricsState, durationMs: Long): Pair<List<LyricLine>, Boolean> {
+        if (state !is LyricsState.Success) return emptyList<LyricLine>() to false
+        val synced = state.syncedLyrics?.let { LyricParser.parse(it) }.orEmpty()
+        if (synced.isNotEmpty()) return synced to true
+        if (state.plainLyrics.isBlank() || durationMs <= 0L) return emptyList<LyricLine>() to false
+        return OfflineLyricSynchronizer.synchronize(state.plainLyrics, durationMs) to false
     }
 
     private val placeholderTitle = context.getString(R.string.widget_track_title_placeholder)

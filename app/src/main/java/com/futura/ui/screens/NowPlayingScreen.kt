@@ -124,6 +124,7 @@ import com.futura.R
 import com.futura.ui.components.nowplaying.HeroPlayer
 import com.futura.ui.components.nowplaying.KineticWaveform
 import com.futura.ui.components.nowplaying.LyricsPanel
+import com.futura.lyrics.LyricsState
 import com.futura.ui.components.nowplaying.MultiPanelDeck
 import com.futura.ui.components.nowplaying.PlaybackDock
 import com.futura.ui.components.nowplaying.RelatedPanel
@@ -171,6 +172,7 @@ fun NowPlayingScreen(
     val positionMs by viewModel.positionMs.collectAsStateWithLifecycle()
     val bassLevel by viewModel.bassLevel.collectAsStateWithLifecycle()
     val waveformData by viewModel.waveformData.collectAsStateWithLifecycle()
+    val lyricsState by viewModel.lyricsState.collectAsStateWithLifecycle()
     val playbackProgress = if (uiState.durationMs > 0L) {
         (positionMs.toFloat() / uiState.durationMs.toFloat()).coerceIn(0f, 1f)
     } else {
@@ -244,11 +246,16 @@ fun NowPlayingScreen(
                     )
                 },
                 lyricsContent = {
-                    LyricsPanel(
-                        lines = uiState.lyricLines,
-                        currentPositionMs = positionMs,
-                        onSeekToLine = viewModel::onSeekToLine
-                    )
+                    when (val state = lyricsState) {
+                        is LyricsState.Success -> LyricsPanel(
+                            lines = uiState.lyricLines,
+                            currentPositionMs = positionMs,
+                            onSeekToLine = viewModel::onSeekToLine
+                        )
+                        LyricsState.Loading -> Text("Finding lyrics...", color = Color.Gray, fontSize = 13.sp)
+                        LyricsState.Empty -> Text("No lyrics found for this track.", color = Color.Gray, fontSize = 13.sp)
+                        is LyricsState.Error -> Text(state.message, color = Color(0xFFFF8A9B), fontSize = 13.sp)
+                    }
                 },
                 relatedContent = {
                     RelatedPanel(

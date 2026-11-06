@@ -1,8 +1,5 @@
 package com.futura.lyrics
 
-import com.futura.data.nowplaying.LyricParser
-import com.futura.data.nowplaying.OfflineLyricSynchronizer
-import com.futura.ui.components.nowplaying.LyricLine
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -18,18 +15,10 @@ import org.json.JSONException
 import org.json.JSONObject
 import org.json.JSONTokener
 
-/** Lyrics for one track. [synced] is true only when the lines carry timestamps from the source. */
-data class TrackLyrics(val lines: List<LyricLine>, val synced: Boolean) {
-    companion object {
-        val NONE = TrackLyrics(emptyList(), synced = false)
-    }
-}
-
 /**
  * Looks up lyrics on LRCLIB (https://lrclib.net) by track name, artist and
- * duration. Synced LRC lyrics are used as published. Plain lyrics have no
- * timestamps, so they are spread across the track and [TrackLyrics.synced]
- * is false.
+ * duration. Returns the lyric text as published. Parsing is done by the
+ * caller.
  *
  * Requests identify the app with a generic User-Agent and send nothing else
  * about the listener.
@@ -39,29 +28,23 @@ class LrcLibLyrics @Inject constructor(
     private val okHttpClient: OkHttpClient
 ) {
 
-    suspend fun find(title: String, artist: String?, durationMs: Long): TrackLyrics =
+    suspend fun find(title: String, artist: String?, durationMs: Long): LyricsState =
         withContext(Dispatchers.IO) {
             try {
-                val record = lookup(title, artist, durationMs) ?: return@withContext TrackLyrics.NONE
-
+                val record = lookup(title, artist, durationMs) ?: return@withContext LyricsState.Empty
                 val synced = record.textOrNull("syncedLyrics")
-                if (synced != null) {
-                    val lines = LyricParser.parse(synced)
-                    if (lines.isNotEmpty()) return@withContext TrackLyrics(lines, synced = true)
-                }
-
                 val plain = record.textOrNull("plainLyrics")
-                if (plain != null && durationMs > 0L) {
-                    TrackLyrics(OfflineLyricSynchronizer.synchronize(plain, durationMs), synced = false)
+                if (synced == null && plain == null) {
+                    LyricsState.Empty
                 } else {
-                    TrackLyrics.NONE
+                    LyricsState.Success(plainLyrics = plain.orEmpty(), syncedLyrics = synced)
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: IOException) {
-                TrackLyrics.NONE
+                LyricsState.Error("Could not reach LRCLIB. Check your connection.")
             } catch (e: JSONException) {
-                TrackLyrics.NONE
+                LyricsState.Error("LRCLIB returned an unexpected reply.")
             }
         }
 
