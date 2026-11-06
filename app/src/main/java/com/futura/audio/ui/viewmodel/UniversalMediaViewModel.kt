@@ -1,12 +1,16 @@
 package com.futura.audio.ui.viewmodel
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.futura.audio.data.SavedSourcesStore
+import com.futura.audio.domain.MediaId
 import com.futura.audio.domain.MediaItem
 import com.futura.audio.domain.PipelineCategory
 import com.futura.audio.domain.PlaybackRoute
+import com.futura.audio.domain.Subcategory
 import com.futura.audio.pipeline.advanced.PlaylistResolver
+import com.futura.data.extraction.UrlExtractor
 import com.futura.audio.pipeline.compliant.MusicSourceRepository
 import com.futura.audio.playback.ExoPlayerQueueManager
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -23,6 +27,7 @@ class UniversalMediaViewModel @Inject constructor(
     private val repository: MusicSourceRepository,
     private val store: SavedSourcesStore,
     private val playlistResolver: PlaylistResolver,
+    private val urlExtractor: UrlExtractor,
     private val queueManager: ExoPlayerQueueManager
 ) : ViewModel() {
 
@@ -102,15 +107,36 @@ class UniversalMediaViewModel @Inject constructor(
     }
 
     /**
-     * Category 2 currently handles playlists the publisher offers (.m3u, .pls).
+     * Category 2: publisher playlists (.m3u, .pls) and direct audio or video
+     * file links. Web pages are refused by [UrlExtractor], so nothing is
+     * pulled out of a page.
      */
     private suspend fun resolveAdvanced(url: String): List<MediaItem> {
         val path = url.substringBefore('?').lowercase()
-        return if (path.endsWith(".m3u") || path.endsWith(".pls")) {
-            playlistResolver.resolvePlaylist(url)
-        } else {
-            throw IllegalArgumentException("Advanced extraction supports .m3u and .pls playlists for now.")
+        if (path.endsWith(".m3u") || path.endsWith(".pls")) {
+            return playlistResolver.resolvePlaylist(url)
         }
+        val downloaded = urlExtractor.download(url)
+            ?: throw IllegalArgumentException(
+                "Could not get audio or video from that link. Use a direct file link, or a .m3u or .pls playlist."
+            )
+        val fileUri = Uri.fromFile(downloaded.file).toString()
+        val title = url.substringBefore('?').substringAfterLast('/').substringBeforeLast('.')
+            .ifBlank { "Downloaded media" }
+        return listOf(
+            MediaItem(
+                id = MediaId(fileUri),
+                title = title,
+                artist = null,
+                streamUrl = fileUri,
+                artworkUrl = null,
+                sourceName = "Direct link",
+                subcategory = Subcategory("extraction.direct"),
+                route = PlaybackRoute.EXOPLAYER_DIRECT,
+                category = PipelineCategory.ADVANCED_EXTRACTION,
+                isVideo = downloaded.contentType.startsWith("video/")
+            )
+        )
     }
 
     fun onMediaItemClicked(item: MediaItem) {

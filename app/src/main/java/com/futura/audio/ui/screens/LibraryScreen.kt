@@ -134,7 +134,7 @@ fun LibraryScreen(
                     .weight(1f),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                items(visibleItems, key = { it.id }) { item ->
+                items(visibleItems, key = { it.id.value }) { item ->
                     GlassmorphicMediaCard(
                         item = item,
                         // Queue the visible list so Next and auto-advance continue through it.

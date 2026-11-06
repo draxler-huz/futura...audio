@@ -76,6 +76,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import com.futura.alarm.AlarmStore
+import com.futura.alarm.DndBypassResolver
+import com.futura.alarm.PermissionGuard
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -87,6 +89,12 @@ class FuturaApp : Application(), Configuration.Provider {
 
     @Inject
     lateinit var alarmStore: AlarmStore
+
+    @Inject
+    lateinit var dndBypassResolver: DndBypassResolver
+
+    @Inject
+    lateinit var permissionGuard: PermissionGuard
 
     companion object {
         private const val TAG = "FuturaApp"
@@ -143,6 +151,10 @@ class FuturaApp : Application(), Configuration.Provider {
 
         // Hook 1: process-level visibility state.
         registerActivityLifecycleCallbacks(ForegroundTracker())
+
+        // Alarm channel bypasses Do Not Disturb. Created once; later calls are no-ops.
+        dndBypassResolver.ensureChannel()
+        Log.i(TAG, "permissions: ${permissionGuard.checkAll()}")
 
         // Hook 2: crash diagnostics. Installed after Hilt has already
         // wired up its own graph, so any exception thrown from a Hilt

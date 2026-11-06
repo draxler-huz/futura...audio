@@ -185,7 +185,7 @@ fun UniversalMediaScreen(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                items(activeItems, key = { it.id }) { item ->
+                items(activeItems, key = { it.id.value }) { item ->
                     GlassmorphicMediaCard(
                         item = item,
                         onClick = { viewModel.onMediaItemClicked(item) }
