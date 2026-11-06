@@ -75,7 +75,7 @@ class AlarmAudioSession @Inject constructor(
             }
             ramp.start(plan)
             sync.start()
-            startTone()
+            startTone(spec)
             vibration.start(EscalationStage.GENTLE)
             Log.i(tag, "Audio session started for " + spec.id)
         } catch (e: CancellationException) {
@@ -120,11 +120,16 @@ class AlarmAudioSession @Inject constructor(
     }
 
     /**
-     * Stage 1 alarm sound: the bundled tone, played by the native engine.
-     * The tone file is generated on first use, on an IO thread. Each alarm
-     * starts from a fresh native player, so a previous session cannot leak.
+     * Stage 1 alarm sound. Plays the song the user picked when it can be
+     * read, otherwise the bundled tone. The tone file is generated on first
+     * use, on an IO thread. Each alarm starts from a fresh native player, so a
+     * previous session cannot leak.
      */
-    private suspend fun startTone() {
+    private suspend fun startTone(spec: AlarmSpec) {
+        val song = AlarmSongStore.fileFor(context, spec.soundUri)
+        if (song != null && playNative(song.absolutePath)) return
+        if (song != null) Log.w(tag, "Alarm song could not be played; using the alarm tone")
+
         // Render at the device's output rate, so the native stream needs no resampling.
         val rate = context.getSystemService(AudioManager::class.java)
             ?.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)
@@ -132,18 +137,25 @@ class AlarmAudioSession @Inject constructor(
         val tone = withContext(Dispatchers.IO) {
             AlarmToneGenerator.ensureTone(File(context.filesDir, "tones"), rate)
         }
+        playNative(tone.absolutePath)
+    }
+
+    /** Starts [path] on a fresh native player. Returns false, after logging why, when it cannot start. */
+    private fun playNative(path: String): Boolean {
         NativePlayerBridge.destroy()
         if (!NativePlayerBridge.create()) {
             Log.w(tag, "native player create failed: ${NativePlayerBridge.getLastError()}")
-            return
+            return false
         }
-        if (!NativePlayerBridge.prepare(tone.absolutePath, SourceType.FILE)) {
-            Log.w(tag, "tone prepare failed: ${NativePlayerBridge.getLastError()}")
-            return
+        if (!NativePlayerBridge.prepare(path, SourceType.FILE)) {
+            Log.w(tag, "prepare failed for $path: ${NativePlayerBridge.getLastError()}")
+            return false
         }
         if (!NativePlayerBridge.play()) {
-            Log.w(tag, "tone play failed: ${NativePlayerBridge.getLastError()}")
+            Log.w(tag, "play failed: ${NativePlayerBridge.getLastError()}")
+            return false
         }
+        return true
     }
 
 

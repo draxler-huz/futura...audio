@@ -26,7 +26,15 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import com.futura.alarm.AlarmSongStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -73,6 +81,21 @@ fun AlarmEditorScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var dateInput by remember { mutableStateOf("") }
     var dateError by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val songPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    val fileUri = withContext(Dispatchers.IO) { AlarmSongStore.importSong(context, uri) }
+                    draft = draft.copy(soundUri = fileUri)
+                    error = null
+                } catch (e: Exception) {
+                    error = e.localizedMessage ?: "Could not use that song."
+                }
+            }
+        }
+    }
 
     fun commit(proof: VaultUnlockProof?) {
         onSave(draft, proof) { error = it }
@@ -219,6 +242,10 @@ fun AlarmEditorScreen(
                         label = "Ringtone",
                         selected = draft.soundUri == RINGTONE_URI
                     ) { draft = draft.copy(soundUri = RINGTONE_URI) }
+                    MacroChip(
+                        label = "My song",
+                        selected = draft.soundUri.startsWith(AlarmSongStore.SCHEME)
+                    ) { songPicker.launch(arrayOf("audio/*")) }
                 }
             }
 
