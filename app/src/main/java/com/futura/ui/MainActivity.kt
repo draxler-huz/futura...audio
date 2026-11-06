@@ -309,6 +309,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             FuturaTheme {
+                com.futura.diagnostics.CrashReportDialog()
                 MainNavHost(
                     pendingRoute = pendingRoute.asStateFlow(),
                     onFinish = ::finish,

@@ -150,6 +150,7 @@ class FuturaApp : Application(), Configuration.Provider {
         )
 
         // Hook 1: process-level visibility state.
+        com.futura.diagnostics.CrashReport.install(this)
         registerActivityLifecycleCallbacks(ForegroundTracker())
 
         // Alarm channel bypasses Do Not Disturb. Created once; later calls are no-ops.
