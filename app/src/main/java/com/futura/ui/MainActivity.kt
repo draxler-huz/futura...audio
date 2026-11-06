@@ -44,11 +44,16 @@ package com.futura.ui
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.Build
 import android.provider.Settings
 import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.content.ContextCompat
+import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -276,9 +281,20 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var videoState: PlaybackVideoState
 
+    /** Android 13+ hides notifications until the user allows them. Playback works without it. */
+    private val notificationPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* Nothing to do: playback runs either way. */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
 
         // Only read the launching intent on first creation. On configuration
         // change (rotation, dark-mode toggle) the NavHost restores its

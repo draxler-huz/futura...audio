@@ -124,6 +124,7 @@ import com.futura.R
 import com.futura.ui.components.nowplaying.HeroPlayer
 import com.futura.ui.components.nowplaying.KineticWaveform
 import com.futura.ui.components.nowplaying.LyricsPanel
+import com.futura.ui.components.nowplaying.SongSummaryCard
 import com.futura.ui.components.nowplaying.MultiPanelDeck
 import com.futura.ui.components.nowplaying.PlaybackDock
 import com.futura.ui.components.nowplaying.RelatedPanel
@@ -171,6 +172,8 @@ fun NowPlayingScreen(
     val positionMs by viewModel.positionMs.collectAsStateWithLifecycle()
     val bassLevel by viewModel.bassLevel.collectAsStateWithLifecycle()
     val waveformData by viewModel.waveformData.collectAsStateWithLifecycle()
+    val summary by viewModel.summary.collectAsStateWithLifecycle()
+    val hasAiKey by viewModel.hasAiKey.collectAsStateWithLifecycle()
     val playbackProgress = if (uiState.durationMs > 0L) {
         (positionMs.toFloat() / uiState.durationMs.toFloat()).coerceIn(0f, 1f)
     } else {
@@ -244,11 +247,20 @@ fun NowPlayingScreen(
                     )
                 },
                 lyricsContent = {
-                    LyricsPanel(
-                        lines = uiState.lyricLines,
-                        currentPositionMs = positionMs,
-                        onSeekToLine = viewModel::onSeekToLine
-                    )
+                    if (uiState.lyricLines.isEmpty()) {
+                        SongSummaryCard(
+                            state = summary,
+                            hasKey = hasAiKey,
+                            onSummarize = viewModel::requestSummary,
+                            onSaveKey = viewModel::saveAiKey
+                        )
+                    } else {
+                        LyricsPanel(
+                            lines = uiState.lyricLines,
+                            currentPositionMs = positionMs,
+                            onSeekToLine = viewModel::onSeekToLine
+                        )
+                    }
                 },
                 relatedContent = {
                     RelatedPanel(

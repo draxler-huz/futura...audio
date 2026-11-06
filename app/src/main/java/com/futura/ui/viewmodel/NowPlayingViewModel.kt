@@ -82,6 +82,8 @@
 package com.futura.ui.viewmodel
 
 import android.content.Context
+import com.futura.ai.AiKeyStore
+import com.futura.ai.SongSummaryService
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -89,6 +91,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.futura.R
 import com.futura.ui.components.nowplaying.LyricLine
+import com.futura.ui.components.nowplaying.SongSummaryState
 import com.futura.ui.components.nowplaying.MoodTag
 import com.futura.ui.components.nowplaying.UpNextItem
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -196,7 +199,9 @@ data class NowPlayingUiState(
 @HiltViewModel
 class NowPlayingViewModel @Inject constructor(
     @ApplicationContext context: Context,
-    private val player: ExoPlayer
+    private val player: ExoPlayer,
+    private val summaryService: SongSummaryService,
+    private val keys: AiKeyStore
 ) : ViewModel() {
 
     // ═════════════════════════════════════════════════════════════════════
@@ -264,6 +269,41 @@ class NowPlayingViewModel @Inject constructor(
     // ExoPlayer binding
     // ═════════════════════════════════════════════════════════════════════
 
+    // ── Song summary (AI, user's own Gemini key) ─────────────────────
+    private val summaryCache = mutableMapOf<String, String>()
+    private val _summary = MutableStateFlow<SongSummaryState>(SongSummaryState.Idle)
+    val summary: StateFlow<SongSummaryState> = _summary.asStateFlow()
+    private val _hasAiKey = MutableStateFlow(keys.hasGeminiKey())
+    val hasAiKey: StateFlow<Boolean> = _hasAiKey.asStateFlow()
+
+    /** Asks Gemini about the playing track. Each track is summarized once per session. */
+    fun requestSummary() {
+        val item = player.currentMediaItem ?: return
+        val id = item.mediaId
+        val title = item.mediaMetadata.title?.toString()?.takeIf { it.isNotBlank() } ?: return
+        val artist = item.mediaMetadata.artist?.toString()
+        summaryCache[id]?.let {
+            _summary.value = SongSummaryState.Ready(it)
+            return
+        }
+        _summary.value = SongSummaryState.Loading
+        viewModelScope.launch {
+            val result = summaryService.summarize(title, artist)
+            // Drop the answer if the track changed while Gemini was working.
+            if (player.currentMediaItem?.mediaId != id) return@launch
+            result.onSuccess { text ->
+                summaryCache[id] = text
+                _summary.value = SongSummaryState.Ready(text)
+            }.onFailure { e ->
+                _summary.value = SongSummaryState.Failed(e.message ?: "Could not summarize this song.")
+            }
+        }
+    }
+
+    fun saveAiKey(key: String) {
+        _hasAiKey.value = keys.saveGeminiKey(key)
+    }
+
     private val placeholderTitle = context.getString(R.string.widget_track_title_placeholder)
     private val placeholderArtist = context.getString(R.string.widget_track_artist_placeholder)
     private var positionTicker: Job? = null
@@ -271,6 +311,11 @@ class NowPlayingViewModel @Inject constructor(
     private val playerListener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
             syncFromPlayer()
+        }
+
+        override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+            _summary.value = mediaItem?.mediaId?.let { summaryCache[it] }
+                ?.let { SongSummaryState.Ready(it) } ?: SongSummaryState.Idle
         }
     }
 
