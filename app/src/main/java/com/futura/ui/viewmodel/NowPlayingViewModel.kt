@@ -82,8 +82,8 @@
 package com.futura.ui.viewmodel
 
 import android.content.Context
-import com.futura.ai.AiKeyStore
-import com.futura.ai.SongSummaryService
+import com.futura.lyrics.LrcLibLyrics
+import com.futura.lyrics.TrackLyrics
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -91,7 +91,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.futura.R
 import com.futura.ui.components.nowplaying.LyricLine
-import com.futura.ui.components.nowplaying.SongSummaryState
 import com.futura.ui.components.nowplaying.MoodTag
 import com.futura.ui.components.nowplaying.UpNextItem
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -200,8 +199,7 @@ data class NowPlayingUiState(
 class NowPlayingViewModel @Inject constructor(
     @ApplicationContext context: Context,
     private val player: ExoPlayer,
-    private val summaryService: SongSummaryService,
-    private val keys: AiKeyStore
+    private val lrcLib: LrcLibLyrics
 ) : ViewModel() {
 
     // ═════════════════════════════════════════════════════════════════════
@@ -269,39 +267,33 @@ class NowPlayingViewModel @Inject constructor(
     // ExoPlayer binding
     // ═════════════════════════════════════════════════════════════════════
 
-    // ── Song summary (AI, user's own Gemini key) ─────────────────────
-    private val summaryCache = mutableMapOf<String, String>()
-    private val _summary = MutableStateFlow<SongSummaryState>(SongSummaryState.Idle)
-    val summary: StateFlow<SongSummaryState> = _summary.asStateFlow()
-    private val _hasAiKey = MutableStateFlow(keys.hasGeminiKey())
-    val hasAiKey: StateFlow<Boolean> = _hasAiKey.asStateFlow()
+    // ── Lyrics (LRCLIB) ───────────────────────────────────────────────
+    private val lyricsCache = mutableMapOf<String, TrackLyrics>()
+    private var lyricsJob: Job? = null
 
-    /** Asks Gemini about the playing track. Each track is summarized once per session. */
-    fun requestSummary() {
-        val item = player.currentMediaItem ?: return
-        val id = item.mediaId
-        val title = item.mediaMetadata.title?.toString()?.takeIf { it.isNotBlank() } ?: return
-        val artist = item.mediaMetadata.artist?.toString()
-        summaryCache[id]?.let {
-            _summary.value = SongSummaryState.Ready(it)
-            return
-        }
-        _summary.value = SongSummaryState.Loading
-        viewModelScope.launch {
-            val result = summaryService.summarize(title, artist)
-            // Drop the answer if the track changed while Gemini was working.
-            if (player.currentMediaItem?.mediaId != id) return@launch
-            result.onSuccess { text ->
-                summaryCache[id] = text
-                _summary.value = SongSummaryState.Ready(text)
-            }.onFailure { e ->
-                _summary.value = SongSummaryState.Failed(e.message ?: "Could not summarize this song.")
-            }
-        }
+    private fun showLyrics(lyrics: TrackLyrics) {
+        _uiState.update { it.copy(lyricLines = lyrics.lines, hasSyncedLyrics = lyrics.synced) }
     }
 
-    fun saveAiKey(key: String) {
-        _hasAiKey.value = keys.saveGeminiKey(key)
+    /** Looks up lyrics for the track now playing. Each track is fetched once per session. */
+    private fun loadLyrics(item: androidx.media3.common.MediaItem?) {
+        lyricsJob?.cancel()
+        showLyrics(TrackLyrics.NONE)
+        if (item == null) return
+        val id = item.mediaId
+        lyricsCache[id]?.let {
+            showLyrics(it)
+            return
+        }
+        val title = item.mediaMetadata.title?.toString()?.takeIf { it.isNotBlank() } ?: return
+        val artist = item.mediaMetadata.artist?.toString()
+        val duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L
+        lyricsJob = viewModelScope.launch {
+            val found = lrcLib.find(title, artist, duration)
+            lyricsCache[id] = found
+            // Drop the answer if the track changed while the lookup was running.
+            if (player.currentMediaItem?.mediaId == id) showLyrics(found)
+        }
     }
 
     private val placeholderTitle = context.getString(R.string.widget_track_title_placeholder)
@@ -314,8 +306,7 @@ class NowPlayingViewModel @Inject constructor(
         }
 
         override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
-            _summary.value = mediaItem?.mediaId?.let { summaryCache[it] }
-                ?.let { SongSummaryState.Ready(it) } ?: SongSummaryState.Idle
+            loadLyrics(mediaItem)
         }
     }
 
@@ -323,6 +314,7 @@ class NowPlayingViewModel @Inject constructor(
         // The same player instance backs the MediaSession in FuturaPlaybackService.
         player.addListener(playerListener)
         syncFromPlayer()
+        loadLyrics(player.currentMediaItem)
     }
 
     override fun onCleared() {
