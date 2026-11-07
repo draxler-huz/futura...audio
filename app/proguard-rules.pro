@@ -208,6 +208,11 @@
 -dontwarn org.jetbrains.annotations.**
 -dontwarn org.checkerframework.**
 
+# jsoup 1.18.x carries org.jspecify annotations for its nullability contract.
+# They are compile-time only and never shipped, so R8 reports them as missing
+# classes when minifying the release build.
+-dontwarn org.jspecify.annotations.**
+
 # Temporary: R8 8.5.x throws ConcurrentModificationException in its shaking
 # pass for this app's graph (CI, release minify). Skipping dead-code removal
 # avoids that pass. Obfuscation and optimisation still run. Remove once R8
