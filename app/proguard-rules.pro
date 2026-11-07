@@ -226,3 +226,4 @@
 -dontwarn org.slf4j.**
 -dontwarn org.eclipse.jetty.**
 -dontwarn java.lang.management.**
+-dontwarn java.beans.**
