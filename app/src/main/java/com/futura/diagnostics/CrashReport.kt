@@ -13,6 +13,9 @@ object CrashReport {
 
     private const val FILE = "last_crash.txt"
 
+    /** Directory handed to the native crash handler; it writes FILE here. */
+    private const val NATIVE_DIR = "native-crash"
+
     fun install(context: Context) {
         val appContext = context.applicationContext
         val previous = Thread.getDefaultUncaughtExceptionHandler()
@@ -36,5 +39,15 @@ object CrashReport {
 
     fun clear(context: Context) {
         File(context.filesDir, FILE).delete()
+        nativeReportFile(context).delete()
     }
+
+    /** Directory the native crash handler writes into. */
+    fun nativeCrashDir(context: Context): File = File(context.filesDir, NATIVE_DIR)
+
+    /** Report written by the native crash handler, or null if none. */
+    fun nativeReport(context: Context): String? =
+        nativeReportFile(context).takeIf { it.exists() }?.readText()
+
+    private fun nativeReportFile(context: Context): File = File(nativeCrashDir(context), FILE)
 }

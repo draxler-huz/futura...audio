@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun CrashReportDialog() {
     val context = LocalContext.current
-    var report by remember { mutableStateOf(CrashReport.pending(context)) }
+    var report by remember { mutableStateOf(combinedReport(context)) }
     val text = report ?: return
 
     fun dismiss() {
@@ -44,4 +44,13 @@ fun CrashReportDialog() {
         },
         dismissButton = { TextButton(onClick = { dismiss() }) { Text("Close") } }
     )
+}
+
+/** The Kotlin crash report and, when present, the native one, joined. */
+private fun combinedReport(context: android.content.Context): String? {
+    val parts = listOfNotNull(
+        CrashReport.pending(context),
+        CrashReport.nativeReport(context)?.let { "Native crash\n\n$it" }
+    )
+    return parts.joinToString("\n\n").ifBlank { null }
 }

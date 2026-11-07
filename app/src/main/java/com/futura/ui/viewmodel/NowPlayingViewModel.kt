@@ -82,6 +82,7 @@
 package com.futura.ui.viewmodel
 
 import android.content.Context
+import com.futura.engine.NativeEngine
 import com.futura.lyrics.LrcLibLyrics
 import com.futura.data.nowplaying.LyricParser
 import com.futura.data.nowplaying.OfflineLyricSynchronizer
@@ -213,10 +214,10 @@ class NowPlayingViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(
         NowPlayingUiState(
             formatBadgeText = context.getString(R.string.nowplaying_format_badge_default),
-            sampleRateText = "96 kHz / 24-bit",
-            audioHalText = "AAudio",
-            latencyMs = 8.3f,
-            bufferFrames = 192,
+            sampleRateText = "",
+            audioHalText = "",
+            latencyMs = 0f,
+            bufferFrames = 0,
             trackTitle = context.getString(R.string.widget_track_title_placeholder),
             trackArtist = context.getString(R.string.widget_track_artist_placeholder)
         )
@@ -602,6 +603,27 @@ class NowPlayingViewModel @Inject constructor(
         }
         _positionMs.value = player.currentPosition
         if (player.isPlaying) startPositionTicker() else stopPositionTicker()
+        refreshNativeTelemetry()
+    }
+
+    /**
+     * Read the negotiated audio-device figures from the native engine into the
+     * UI state. Falls back to a sensible default HAL name before the engine
+     * has opened its device, so the Stream Inspector is never blank.
+     */
+    private fun refreshNativeTelemetry() {
+        val sampleRate = NativeEngine.getDeviceSampleRate()
+        val framesPerBurst = NativeEngine.getDeviceFramesPerBurst()
+        val latency = NativeEngine.getDeviceHardwareLatencyMs()
+        _uiState.update {
+            it.copy(
+                sampleRateText = if (sampleRate > 0) "$sampleRate Hz" else "",
+                // Oboe selects AAudio on every API level this app supports.
+                audioHalText = "AAudio",
+                latencyMs = if (latency.isNaN() || latency <= 0.0) 0f else latency.toFloat(),
+                bufferFrames = if (framesPerBurst > 0) framesPerBurst else 0
+            )
+        }
     }
 
     /**

@@ -78,6 +78,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import com.futura.alarm.AlarmStore
 import com.futura.alarm.DndBypassResolver
 import com.futura.alarm.PermissionGuard
+import com.futura.engine.NativeEngine
+import com.futura.engine.NativeEngineConfig
 import androidx.hilt.work.HiltWorkerFactory
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
@@ -165,6 +167,18 @@ class FuturaApp : Application(), Configuration.Provider {
         // wired up its own graph, so any exception thrown from a Hilt
         // component is captured here too.
         installUncaughtExceptionHandler()
+
+        // Hook 3: native engine. Brings up libfutura_engine.so and its audio
+        // device, and installs the native crash handler so a fault inside the
+        // C++ pipeline is captured on the next launch. Runs off the main
+        // thread because initialize() blocks while the device is opened, and
+        // is a no-op when the library is unavailable.
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            NativeEngine.initialize(NativeEngineConfig(enableBitPerfect = true))
+            NativeEngine.installCrashHandler(
+                com.futura.diagnostics.CrashReport.nativeCrashDir(this@FuturaApp)
+            )
+        }
 
         // ── Future initialization seam ───────────────────────────────────
         // Each subsystem implemented in later turns attaches its own
