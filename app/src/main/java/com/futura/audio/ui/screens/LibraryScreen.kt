@@ -49,6 +49,7 @@ fun LibraryScreen(
     onOpenNowPlaying: () -> Unit,
     onOpenMediaHub: () -> Unit,
     onOpenBrowser: () -> Unit,
+    onOpenAurora: () -> Unit,
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val savedItems by viewModel.items.collectAsStateWithLifecycle()
@@ -96,6 +97,7 @@ fun LibraryScreen(
             OutlinedButton(onClick = onOpenNowPlaying) { Text("Now Playing") }
             OutlinedButton(onClick = onOpenMediaHub) { Text("Media Hub") }
             OutlinedButton(onClick = onOpenBrowser) { Text("Browser") }
+            OutlinedButton(onClick = onOpenAurora) { Text("Aurora") }
         }
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
