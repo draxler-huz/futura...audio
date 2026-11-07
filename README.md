@@ -268,6 +268,24 @@ The supplied tree describes Phases 1–3 as implemented and Phases 4–6 as scaf
 
 ---
 
+## Discovery feed (Hurzy)
+
+Hurzy is the discovery tab in the bottom navigation. It shows a Spotify-style
+home feed — a time-aware greeting, a debounced search field, and a two-column
+grid of artwork cards — backed by live results rather than placeholder data.
+
+- `HurzyViewModel` loads a default audio feed on open, so the tab is never
+  empty, and runs a 300 ms debounced search as you type.
+- Results come from every enabled source through `SearchRepository`. Each hit
+  is filtered to items that carry a direct stream URL and are not live radio.
+- Tapping a card queues the visible list through `ExoPlayerQueueManager` and
+  opens Now Playing — the same playback route the Media Hub uses.
+
+Artwork uses Coil when a source supplies a thumbnail, and falls back to a
+brand-tinted gradient so a card never renders blank.
+
+---
+
 ## Tech stack
 **Android**
 
@@ -285,6 +303,107 @@ The supplied tree describes Phases 1–3 as implemented and Phases 4–6 as scaf
 
 - Gradle 8.9 (Kotlin DSL), AGP 8.5.2, KSP 2.0.21-1.0.28
 - Version catalog at `gradle/libs.versions.toml` — every dependency pin lives there, nowhere else
+
+---
+
+## Media sources
+
+The app aggregates media from many providers through a single
+`MediaSource` interface. Each provider is described by a `SourceConfig`
+record in `SourceRegistry`, and the user's on/off choice per provider is
+persisted in DataStore (`SourcePreferences`).
+
+### Tiers
+
+- **Tier 1** — stable, documented APIs with clear licenses. Ships enabled.
+- **Tier 2** — additional providers, declared with `enabled = false`.
+  Most need a key, scraping, or a partner agreement.
+
+### Source table
+
+| id | Name | Type | Tier | Key | Scrape | License | Default |
+|----|------|------|------|-----|--------|---------|---------|
+| audius | Audius | audio | 1 | no | no | Artist-defined | on |
+| jamendo | Jamendo | audio | 1 | yes | no | CC / Jamendo | on* |
+| archive_audio | Internet Archive | audio | 1 | no | no | CC / PD | on |
+| wikimedia_audio | Wikimedia Commons | audio | 1 | no | no | CC / PD | on |
+| radiobrowser | Radio Browser | audio | 1 | no | no | Radio (streaming) | on |
+| ccmixter | ccMixter | audio | 1 | no | no | CC | on |
+| incompetech | Incompetech | audio | 1 | no | yes | CC-BY 4.0 | on |
+| opengameart | OpenGameArt | audio | 1 | no | yes | CC0/CC-BY/CC-BY-SA | on |
+| freetouse | FreeToUse | audio | 1 | no | yes | FreeToUse | off |
+| fma | Free Music Archive | audio | 1 | yes | no | CC | off |
+| freesound | Freesound | audio | 1 | yes | no | CC | off |
+| archive_video | Internet Archive Video | video | 1 | no | no | CC / PD | on |
+| wikimedia_video | Wikimedia Commons Video | video | 1 | no | no | CC / PD | on |
+| pexels | Pexels | video | 1 | yes | no | Pexels License | on* |
+| pixabay | Pixabay | video | 1 | yes | no | Pixabay License | on* |
+
+\* A key-based source is wanted by default but only queried once its key is
+present. Set `JAMENDO_CLIENT_ID`, `PEXELS_API_KEY`, or `PIXABAY_API_KEY` in
+`local.properties` and that source switches on at the next build. Leave the
+key as `YOUR_KEY` and the source stays inactive — it appears in the sources
+sheet as "needs key". `fma` and `freesound` also need an adapter, so they
+remain `enabled = false` until one is written.
+
+Tier 2 providers (Openverse, LibriVox, Podcast Index, Mixcloud, and the
+metadata-only group Spotify/Deezer/iTunes/YouTube/Last.fm/Discogs/
+MusicBrainz/TheAudioDB/Cover Art Archive/LRCLIB/Lyrics.ovh/Genius, plus
+scraped video sites such as Mixkit, Coverr, Videvo, Mazwai, NASA, and the
+Library of Congress) are listed in `SourceRegistry` with `enabled = false`.
+
+### Metadata-only and link-out sources
+
+These are never streamed or downloaded. They exist to enrich metadata or to
+open the item in the provider's own app:
+
+- **Spotify / Apple Music / YouTube** — no audio streaming is implemented.
+  Spotify's terms forbid it, and extracting YouTube audio breaks YouTube's
+  terms of service and would get the app removed from Play. YouTube results
+  carry a "Watch on YouTube" deep link instead.
+- **Bandcamp / SoundCloud** — no public API; link-out only.
+- **Deezer / iTunes / Napster** — 30-second previews are allowed by their
+  terms; downloads are not offered.
+- **Radio Browser** — live streams are playable only, never downloadable.
+
+### Adding API keys
+
+Put keys in `local.properties` (gitignored); they are exposed as BuildConfig
+fields and read by `SourceKeys`. A key left as `YOUR_KEY` counts as "not
+configured" and the source stays inactive.
+
+```properties
+# local.properties
+JAMENDO_CLIENT_ID=your_jamendo_id
+PEXELS_API_KEY=your_pexels_key
+PIXABAY_API_KEY=your_pixabay_key
+FREESOUND_TOKEN=your_freesound_token
+```
+
+Lookup order is `local.properties` → environment variable of the same name →
+`YOUR_KEY`, so CI can export the variables instead of writing a file. Keys
+are baked into `BuildConfig` at compile time: rebuild after changing them.
+
+A key-requiring source is queried only when it is *wanted* **and** its key is
+present. Wanted means the registry default or the user's stored choice from
+`SourcePreferences`. `SourceRegistry.statusFor` reports this per source as
+`ON`, `NEEDS_KEY`, or `OFF`.
+
+### Attribution
+
+CC-BY and CC-BY-SA items require credit. `SourceMediaItem.attributionString()`
+builds the text; the UI offers a "Copy attribution" action. Providers that
+need it include Incompetech (CC-BY 4.0), OpenGameArt, Mazwai (CC-BY 3.0),
+and the Creative Commons items from Internet Archive and Wikimedia.
+
+### Compliance gates
+
+- Items whose license does not allow commercial use are hidden while the
+  commercial-only filter is on (the default).
+- Downloads are refused for any item with `downloadable == false` or a
+  non-commercial license while commercial-only is on.
+- Each source runs behind a per-host rate limiter and a circuit breaker
+  that disables it temporarily after repeated failures.
 
 ---
 

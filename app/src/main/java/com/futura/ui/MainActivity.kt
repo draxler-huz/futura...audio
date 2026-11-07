@@ -98,6 +98,7 @@ import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.compose.currentBackStackEntryAsState
 import android.util.Log
@@ -116,6 +117,7 @@ import com.futura.audio.ui.screens.LibraryScreen
 import com.futura.audio.ui.viewmodel.UniversalMediaViewModel
 import com.futura.ui.screens.AlarmEditorScreen
 import com.futura.ui.screens.AlarmListScreen
+import com.futura.ui.screens.HurzyScreen
 import com.futura.ui.screens.LoadingScreen
 import com.futura.ui.screens.VaultContentScreen
 import com.futura.ui.screens.VaultSecurityScreen
@@ -175,6 +177,9 @@ enum class MainRoute(val route: String) {
 
     /** Universal Media Hub: Category 1 sources, cover flow, web embeds. */
     MediaHub("media_hub"),
+
+    /** Hurzy — Spotify-style discovery feed. */
+    Hurzy("hurzy"),
 
     /** Phase 4 — DJ Studio (DjStudioScreen). */
     DjStudio("dj_studio"),
@@ -254,6 +259,7 @@ enum class MainRoute(val route: String) {
                 "now_playing", "nowplaying" -> NowPlaying
                 "library" -> Library
                 "hub", "media", "media_hub" -> MediaHub
+                "hurzy" -> Hurzy
                 "dj", "dj_studio" -> DjStudio
                 "visualizer" -> VisualizerDeck
                 "car", "car_mode" -> CarMode
@@ -375,6 +381,7 @@ class MainActivity : ComponentActivity() {
 /** Top-level destinations shown in the bottom bar. Other routes stay full-screen. */
 private enum class MainTab(val route: MainRoute, val label: String, val icon: ImageVector) {
     Alarms(MainRoute.AlarmList, "Alarms", Icons.Default.Alarm),
+    Hurzy(MainRoute.Hurzy, "Hurzy", Icons.Default.Whatshot),
     Library(MainRoute.Library, "Library", Icons.Default.LibraryMusic),
     NowPlaying(MainRoute.NowPlaying, "Now Playing", Icons.Default.PlayCircle),
     MediaHub(MainRoute.MediaHub, "Media Hub", Icons.Default.Public)
@@ -553,6 +560,13 @@ private fun MainNavHost(
         }
         composable(AURORA_ROUTE) {
             AuroraScreen(onBack = { navController.popBackStack() })
+        }
+        composable(MainRoute.Hurzy.route) {
+            MusicGate(onCancel = { navController.popBackStack() }) {
+                HurzyScreen(
+                    onOpenNowPlaying = { navController.navigateSingleTop(MainRoute.NowPlaying) }
+                )
+            }
         }
         composable(MainRoute.MediaHub.route) {
             MusicGate(onCancel = { navController.popBackStack() }) {

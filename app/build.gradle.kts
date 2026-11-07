@@ -25,6 +25,17 @@ val hasReleaseKeystore = keystorePropertiesFile.exists() &&
     keystoreProperties.getProperty("storeFile") != null &&
     file(keystoreProperties.getProperty("storeFile")).exists()
 
+// Source API keys. Read from local.properties (gitignored) and exposed as
+// BuildConfig fields. Missing keys fall back to "YOUR_KEY", which the
+// source layer treats as "not configured" and disables that source.
+val localProperties = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+
+fun sourceKey(name: String): String =
+    (localProperties.getProperty(name) ?: System.getenv(name) ?: "YOUR_KEY")
+
 android {
     namespace = "com.futura"
     compileSdk = 34
@@ -40,6 +51,22 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        // API keys for media sources. Empty/unset values stay "YOUR_KEY"
+        // and the corresponding source is skipped at runtime.
+        buildConfigField("String", "JAMENDO_CLIENT_ID", "\"${sourceKey("JAMENDO_CLIENT_ID")}\"")
+        buildConfigField("String", "FREESOUND_TOKEN", "\"${sourceKey("FREESOUND_TOKEN")}\"")
+        buildConfigField("String", "FMA_API_KEY", "\"${sourceKey("FMA_API_KEY")}\"")
+        buildConfigField("String", "PEXELS_API_KEY", "\"${sourceKey("PEXELS_API_KEY")}\"")
+        buildConfigField("String", "PIXABAY_API_KEY", "\"${sourceKey("PIXABAY_API_KEY")}\"")
+        buildConfigField("String", "FLICKR_API_KEY", "\"${sourceKey("FLICKR_API_KEY")}\"")
+        buildConfigField("String", "YOUTUBE_API_KEY", "\"${sourceKey("YOUTUBE_API_KEY")}\"")
+        buildConfigField("String", "THEAUDIODB_API_KEY", "\"${sourceKey("THEAUDIODB_API_KEY")}\"")
+        buildConfigField("String", "PODCASTINDEX_API_KEY", "\"${sourceKey("PODCASTINDEX_API_KEY")}\"")
+        buildConfigField("String", "PODCASTINDEX_API_SECRET", "\"${sourceKey("PODCASTINDEX_API_SECRET")}\"")
+        buildConfigField("String", "GENIUS_ACCESS_TOKEN", "\"${sourceKey("GENIUS_ACCESS_TOKEN")}\"")
+        buildConfigField("String", "BANDSINTOWN_APP_ID", "\"${sourceKey("BANDSINTOWN_APP_ID")}\"")
+        buildConfigField("String", "TICKETMASTER_API_KEY", "\"${sourceKey("TICKETMASTER_API_KEY")}\"")
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
@@ -182,6 +209,7 @@ dependencies {
     implementation(libs.moshi.kotlin)
 
     implementation(libs.coil.compose)
+    implementation(libs.jsoup)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.exoplayer.dash)
     implementation(libs.media3.session)

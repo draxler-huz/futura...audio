@@ -1,0 +1,51 @@
+# Copy this file to local.properties and fill in the keys you have.
+# local.properties is gitignored; this example is committed.
+#
+# A key left as YOUR_KEY (or absent) disables the source that needs it.
+# See the "Media sources" section of README.md.
+
+# Android SDK location (required by Gradle)
+# sdk.dir=/path/to/Android/Sdk
+
+# ── Tier 1 ──────────────────────────────────────────────────────────────
+# Jamendo — https://developer.jamendo.com/
+JAMENDO_CLIENT_ID=YOUR_KEY
+
+# Pexels — https://www.pexels.com/api/
+PEXELS_API_KEY=YOUR_KEY
+
+# Pixabay — https://pixabay.com/api/docs/
+PIXABAY_API_KEY=YOUR_KEY
+
+# Freesound — https://freesound.org/apiv2/apply/
+FREESOUND_TOKEN=YOUR_KEY
+
+# Free Music Archive
+FMA_API_KEY=YOUR_KEY
+
+# ── Tier 2 (metadata only unless noted) ─────────────────────────────────
+# YouTube Data API v3 — search metadata only, never audio download
+YOUTUBE_API_KEY=YOUR_KEY
+
+# TheAudioDB — artwork enrichment
+THEAUDIODB_API_KEY=YOUR_KEY
+
+# Podcast Index — https://podcastindex.org/
+PODCASTINDEX_API_KEY=YOUR_KEY
+PODCASTINDEX_API_SECRET=YOUR_KEY
+
+# ── Lyrics (no key needed) ──────────────────────────────────────────────
+# Lyrics come from LRCLIB (time-synced) with a Lyrics.ovh fallback, chained
+# in LyricsRepository. Both are keyless, so there is nothing to configure
+# here. Genius is listed below for metadata only: its API does not serve
+# lyrics, so an access token cannot be used for them.
+
+# Genius — annotations and metadata only, never lyrics
+GENIUS_ACCESS_TOKEN=YOUR_KEY
+
+# Flickr — Creative Commons photos/video
+FLICKR_API_KEY=YOUR_KEY
+
+# Bandsintown / Ticketmaster — concert data
+BANDSINTOWN_APP_ID=YOUR_KEY
+TICKETMASTER_API_KEY=YOUR_KEY

@@ -26,9 +26,9 @@ import org.json.JSONTokener
 @Singleton
 class LrcLibLyrics @Inject constructor(
     private val okHttpClient: OkHttpClient
-) {
+) : LyricsProvider {
 
-    suspend fun find(title: String, artist: String?, durationMs: Long): LyricsState =
+    override suspend fun find(title: String, artist: String?, durationMs: Long): LyricsState =
         withContext(Dispatchers.IO) {
             try {
                 val record = lookup(title, artist, durationMs) ?: return@withContext LyricsState.Empty
