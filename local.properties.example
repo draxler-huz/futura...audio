@@ -9,13 +9,13 @@
 
 # ── Tier 1 ──────────────────────────────────────────────────────────────
 # Jamendo — https://developer.jamendo.com/
-JAMENDO_CLIENT_ID=YOUR_KEY
+JAMENDO_CLIENT_ID=ef11e725
 
 # Pexels — https://www.pexels.com/api/
 PEXELS_API_KEY=YOUR_KEY
 
 # Pixabay — https://pixabay.com/api/docs/
-PIXABAY_API_KEY=YOUR_KEY
+PIXABAY_API_KEY=58474501-7b5b76f2ded452340d8df7893
 
 # Freesound — https://freesound.org/apiv2/apply/
 FREESOUND_TOKEN=YOUR_KEY
