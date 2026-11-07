@@ -40,14 +40,33 @@ class SourceRegistry @Inject constructor() {
         }
 
     /**
-     * The sources that should actually be queried: enabled, and usable
-     * given the keys configured in this build.
+     * The sources that should actually be queried: wanted (registry default
+     * or the user's stored choice) and usable given the configured keys.
      */
     fun enabledSources(
         overrides: Map<String, Boolean>,
         configuredKeys: Set<String>
     ): List<SourceConfig> =
-        withOverrides(overrides).filter { it.isUsable(configuredKeys) }
+        all.filter { it.isUsable(configuredKeys, overrides[it.id]) }
+
+    /**
+     * Sources that are wanted and have no key requirement blocking them,
+     * plus the ones waiting on a key. Used by the sources sheet so the UI
+     * can explain why a source is inactive.
+     */
+    fun statusFor(
+        overrides: Map<String, Boolean>,
+        configuredKeys: Set<String>
+    ): Map<String, SourceStatus> =
+        all.associate { config ->
+            val wanted = overrides[config.id] ?: config.enabled
+            val status = when {
+                !wanted -> SourceStatus.OFF
+                config.isBlockedOnMissingKey(configuredKeys) -> SourceStatus.NEEDS_KEY
+                else -> SourceStatus.ON
+            }
+            config.id to status
+        }
 
     companion object {
 
@@ -181,7 +200,7 @@ class SourceRegistry @Inject constructor() {
                 commercialUseAllowed = true,
                 licenseName = "CC",
                 rateLimitPerMinute = 20,
-                notes = "Key required; disabled until the API is reachable."
+                notes = "Needs FMA_API_KEY and an adapter. Off until both exist."
             ),
             SourceConfig(
                 id = "freesound",
@@ -194,7 +213,7 @@ class SourceRegistry @Inject constructor() {
                 commercialUseAllowed = true,
                 licenseName = "CC",
                 rateLimitPerMinute = 20,
-                notes = "OAuth2 token required; disabled until configured."
+                notes = "Needs FREESOUND_TOKEN and an adapter. Off until both exist."
             ),
 
             // ── Tier 1 — video ───────────────────────────────────────────
@@ -203,26 +222,26 @@ class SourceRegistry @Inject constructor() {
                 displayName = "Pexels",
                 fileType = SourceFileType.VIDEO,
                 tier = Tier.TIER_1,
-                enabled = false,
+                enabled = true,
                 requiresKey = true,
                 keyName = "PEXELS_API_KEY",
                 commercialUseAllowed = true,
                 licenseName = "Pexels License",
                 rateLimitPerMinute = 20,
-                notes = "Key required. Free to use, no attribution needed."
+                notes = "Needs PEXELS_API_KEY. Free to use, no attribution needed."
             ),
             SourceConfig(
                 id = "pixabay",
                 displayName = "Pixabay",
                 fileType = SourceFileType.VIDEO,
                 tier = Tier.TIER_1,
-                enabled = false,
+                enabled = true,
                 requiresKey = true,
                 keyName = "PIXABAY_API_KEY",
                 commercialUseAllowed = true,
                 licenseName = "Pixabay License",
                 rateLimitPerMinute = 20,
-                notes = "Key required. Free to use, no attribution needed."
+                notes = "Needs PIXABAY_API_KEY. Free to use, no attribution needed."
             ),
             SourceConfig(
                 id = "archive_video",

@@ -105,10 +105,10 @@ class SearchRepository(
         failed: MutableList<String>
     ): List<SourceMediaItem> {
         val adapter = adapters.forId(config.id)
-        if (adapter == null) {
-            failed += config.id
-            return emptyList()
-        }
+        // A source can be declared in the registry before its adapter exists.
+        // Treat that as "not queried", not as a failure, so it never shows up
+        // in the failure list or trips the breaker.
+        if (adapter == null) return emptyList()
         return try {
             val result = withTimeout(perSourceTimeoutMs) { adapter.search(query, filter) }
             breaker.recordSuccess(config.id)

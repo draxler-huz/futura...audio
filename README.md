@@ -318,10 +318,15 @@ persisted in DataStore (`SourcePreferences`).
 | freesound | Freesound | audio | 1 | yes | no | CC | off |
 | archive_video | Internet Archive Video | video | 1 | no | no | CC / PD | on |
 | wikimedia_video | Wikimedia Commons Video | video | 1 | no | no | CC / PD | on |
-| pexels | Pexels | video | 1 | yes | no | Pexels License | off |
-| pixabay | Pixabay | video | 1 | yes | no | Pixabay License | off |
+| pexels | Pexels | video | 1 | yes | no | Pexels License | on* |
+| pixabay | Pixabay | video | 1 | yes | no | Pixabay License | on* |
 
-\* Jamendo is enabled but only usable once `JAMENDO_CLIENT_ID` is set.
+\* A key-based source is wanted by default but only queried once its key is
+present. Set `JAMENDO_CLIENT_ID`, `PEXELS_API_KEY`, or `PIXABAY_API_KEY` in
+`local.properties` and that source switches on at the next build. Leave the
+key as `YOUR_KEY` and the source stays inactive — it appears in the sources
+sheet as "needs key". `fma` and `freesound` also need an adapter, so they
+remain `enabled = false` until one is written.
 
 Tier 2 providers (Openverse, LibriVox, Podcast Index, Mixcloud, and the
 metadata-only group Spotify/Deezer/iTunes/YouTube/Last.fm/Discogs/
@@ -346,8 +351,8 @@ open the item in the provider's own app:
 ### Adding API keys
 
 Put keys in `local.properties` (gitignored); they are exposed as BuildConfig
-fields and read by `SourceKeys`. A key left as `YOUR_KEY` disables its
-source.
+fields and read by `SourceKeys`. A key left as `YOUR_KEY` counts as "not
+configured" and the source stays inactive.
 
 ```properties
 # local.properties
@@ -356,6 +361,15 @@ PEXELS_API_KEY=your_pexels_key
 PIXABAY_API_KEY=your_pixabay_key
 FREESOUND_TOKEN=your_freesound_token
 ```
+
+Lookup order is `local.properties` → environment variable of the same name →
+`YOUR_KEY`, so CI can export the variables instead of writing a file. Keys
+are baked into `BuildConfig` at compile time: rebuild after changing them.
+
+A key-requiring source is queried only when it is *wanted* **and** its key is
+present. Wanted means the registry default or the user's stored choice from
+`SourcePreferences`. `SourceRegistry.statusFor` reports this per source as
+`ON`, `NEEDS_KEY`, or `OFF`.
 
 ### Attribution
 

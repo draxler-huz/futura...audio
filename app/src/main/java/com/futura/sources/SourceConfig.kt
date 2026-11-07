@@ -12,6 +12,21 @@ enum class Tier { TIER_1, TIER_2 }
 enum class SourceFileType { AUDIO, VIDEO }
 
 /**
+ * Why a source is, or is not, being queried. Drives the sources sheet so a
+ * key-based source that is waiting for its key can say so.
+ */
+enum class SourceStatus {
+    /** Wanted and ready to query. */
+    ON,
+
+    /** Wanted, but its API key is not configured in this build. */
+    NEEDS_KEY,
+
+    /** Turned off, either by default or by the user. */
+    OFF
+}
+
+/**
  * Static description of one media source. The registry holds these; the
  * per-user on/off state lives in DataStore and is merged on top at read
  * time (see [com.futura.sources.data.SourcePreferences]).
@@ -34,12 +49,24 @@ data class SourceConfig(
     /** True when results are links to another app, never playable in Futura. */
     val linkOutOnly: Boolean = false
 ) {
-    /** A key-requiring source is only usable once a real key is configured. */
-    fun isUsable(configuredKeys: Set<String>): Boolean {
-        if (!enabled) return false
+    /**
+     * True when the source should be queried.
+     *
+     * [enabled] (or an explicit [userOverride] from
+     * [com.futura.sources.data.SourcePreferences]) says whether the source
+     * is wanted; a key-requiring source additionally needs its key present
+     * in [configuredKeys]. So pasting a key into `local.properties` switches
+     * a key-based source on, and turning one off in settings keeps it off.
+     */
+    fun isUsable(configuredKeys: Set<String>, userOverride: Boolean? = null): Boolean {
+        if (!(userOverride ?: enabled)) return false
         if (!requiresKey) return true
         return keyName != null && keyName in configuredKeys
     }
+
+    /** True when this source needs a key that is not configured yet. */
+    fun isBlockedOnMissingKey(configuredKeys: Set<String>): Boolean =
+        requiresKey && keyName != null && keyName !in configuredKeys
 }
 
 /**
