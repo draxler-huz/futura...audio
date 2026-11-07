@@ -208,6 +208,9 @@
     <string name="hurzy_filter_cd">Filter</string>
     <string name="hurzy_settings_cd">Settings</string>
     <string name="hurzy_empty">Nothing to show yet</string>
+    <string name="hurzy_section_results">Results</string>
+    <string name="hurzy_no_results">No tracks matched your search.</string>
+    <string name="hurzy_failed_sources">%1$d sources did not respond</string>
 
     <!-- ═══════════════════════════════════════════════════════════════════
          Phase 4 — DJ Studio & Sound Studio

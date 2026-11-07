@@ -82,7 +82,7 @@
 package com.futura.ui.viewmodel
 
 import android.content.Context
-import com.futura.lyrics.LrcLibLyrics
+import com.futura.lyrics.LyricsRepository
 import com.futura.data.nowplaying.LyricParser
 import com.futura.data.nowplaying.OfflineLyricSynchronizer
 import com.futura.lyrics.LyricsState
@@ -203,7 +203,7 @@ data class NowPlayingUiState(
 class NowPlayingViewModel @Inject constructor(
     @ApplicationContext context: Context,
     private val player: ExoPlayer,
-    private val lrcLib: LrcLibLyrics
+    private val lyrics: LyricsRepository
 ) : ViewModel() {
 
     // ═════════════════════════════════════════════════════════════════════
@@ -299,7 +299,7 @@ class NowPlayingViewModel @Inject constructor(
         val artist = item.mediaMetadata.artist?.toString()
         publishLyrics(LyricsState.Loading, duration)
         lyricsJob = viewModelScope.launch {
-            val found = lrcLib.find(title, artist, duration)
+            val found = lyrics.find(title, artist, duration)
             // Errors are not cached, so revisiting the track retries.
             if (found !is LyricsState.Error) lyricsCache[id] = found
             if (player.currentMediaItem?.mediaId == id) publishLyrics(found, duration)

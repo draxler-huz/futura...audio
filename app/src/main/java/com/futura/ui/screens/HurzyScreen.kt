@@ -8,82 +8,94 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.futura.R
+import com.futura.sources.SourceMediaItem
+import com.futura.ui.screens.hurzy.HurzyUiState
+import com.futura.ui.screens.hurzy.HurzyViewModel
 import com.futura.ui.theme.FuturaColors
 import java.util.Calendar
 
 /**
  * Hurzy — the discovery tab.
  *
- * A Spotify-style home feed: a time-aware greeting, a pill search field, a
- * two-column "Recently played" grid, and full-width carousels for
- * recommended playlists and shows. The palette stays on the Futura brand
- * emerald rather than Spotify's own green, so the tab belongs to the rest
- * of the app.
+ * A Spotify-style home feed: a time-aware greeting, a debounced search
+ * field, and a two-column grid of artwork cards. Content comes from every
+ * enabled source through [HurzyViewModel]; tapping a card plays it and
+ * queues the rest of the visible list.
  *
- * Content is placeholder data held in this file; wiring it to the library,
- * the native engine, or a ViewModel is a later, additive step.
+ * The palette stays on the Futura brand emerald rather than Spotify's own
+ * green, so the tab belongs to the rest of the app.
  */
 @Composable
 fun HurzyScreen(
     onOpenNowPlaying: () -> Unit,
+    modifier: Modifier = Modifier,
+    viewModel: HurzyViewModel = hiltViewModel()
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val greetingRes = remember { greetingForHour(Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) }
+
+    HurzyContent(
+        state = state,
+        greeting = stringResource(greetingRes),
+        onQueryChange = viewModel::onQueryChange,
+        onClearQuery = viewModel::clearQuery,
+        onPlay = { item ->
+            viewModel.play(item)
+            onOpenNowPlaying()
+        },
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun HurzyContent(
+    state: HurzyUiState,
+    greeting: String,
+    onQueryChange: (String) -> Unit,
+    onClearQuery: () -> Unit,
+    onPlay: (SourceMediaItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var query by rememberSaveable { mutableStateOf("") }
-    val greetingRes = remember { greetingForHour(Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) }
-    val greeting = stringResource(greetingRes)
-
-    val recent = remember { HurzySamples.recentlyPlayed }
-    val madeForYou = remember { HurzySamples.madeForYou }
-    val mixes = remember { HurzySamples.mixes }
-    val visibleRecent = if (query.isBlank()) {
-        recent
-    } else {
-        recent.filter { it.title.contains(query, ignoreCase = true) }
-    }
-
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
         modifier = modifier
@@ -98,51 +110,58 @@ fun HurzyScreen(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // ── Greeting header ──────────────────────────────────────────────
         item(span = { GridItemSpan(maxLineSpan) }) {
             HurzyHeader(greeting = greeting)
         }
 
-        // ── Search ───────────────────────────────────────────────────────
         item(span = { GridItemSpan(maxLineSpan) }) {
             HurzySearchBar(
-                query = query,
-                onQueryChange = { query = it }
+                query = state.query,
+                onQueryChange = onQueryChange,
+                onClear = onClearQuery
             )
         }
 
-        // ── Recently played ──────────────────────────────────────────────
         item(span = { GridItemSpan(maxLineSpan) }) {
-            HurzySectionHeader(title = stringResource(R.string.hurzy_section_recent))
+            HurzySectionHeader(
+                title = stringResource(
+                    if (state.query.isBlank()) R.string.hurzy_section_made_for_you
+                    else R.string.hurzy_section_results
+                )
+            )
         }
-        if (visibleRecent.isEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
+
+        when {
+            state.loading && state.isEmpty -> item(span = { GridItemSpan(maxLineSpan) }) {
+                HurzyLoading()
+            }
+
+            state.errorMessage != null -> item(span = { GridItemSpan(maxLineSpan) }) {
+                HurzyEmptyState(text = state.errorMessage)
+            }
+
+            state.isEmpty -> item(span = { GridItemSpan(maxLineSpan) }) {
                 HurzyEmptyState(
                     text = stringResource(
-                        if (query.isBlank()) R.string.hurzy_empty else R.string.library_search_empty
+                        if (state.searched) R.string.hurzy_no_results else R.string.hurzy_empty
                     )
                 )
             }
-        } else {
-            items(visibleRecent, key = { it.title }) { item ->
-                HurzyRecentCard(item = item, onClick = onOpenNowPlaying)
+
+            else -> items(state.items, key = { it.id }) { item ->
+                HurzyTrackCard(item = item, onClick = { onPlay(item) })
             }
         }
 
-        // ── Made for you ─────────────────────────────────────────────────
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            HurzySectionHeader(title = stringResource(R.string.hurzy_section_made_for_you))
-        }
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            HurzyCarousel(items = madeForYou, onItemClick = onOpenNowPlaying)
-        }
-
-        // ── Your top mixes ───────────────────────────────────────────────
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            HurzySectionHeader(title = stringResource(R.string.hurzy_section_mixes))
-        }
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            HurzyCarousel(items = mixes, onItemClick = onOpenNowPlaying)
+        if (state.failedSources.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Text(
+                    text = stringResource(R.string.hurzy_failed_sources, state.failedSources.size),
+                    color = FuturaColors.TextDisabled,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
         }
     }
 }
@@ -165,25 +184,15 @@ private fun HurzyHeader(greeting: String) {
             style = MaterialTheme.typography.headlineSmall,
             modifier = Modifier.weight(1f)
         )
-        IconButton(onClick = { /* Filter seam */ }) {
-            Icon(
-                imageVector = Icons.Default.Tune,
-                contentDescription = stringResource(R.string.hurzy_filter_cd),
-                tint = FuturaColors.TextTertiary
-            )
-        }
-        IconButton(onClick = { /* Settings seam */ }) {
-            Icon(
-                imageVector = Icons.Default.Settings,
-                contentDescription = stringResource(R.string.hurzy_settings_cd),
-                tint = FuturaColors.TextTertiary
-            )
-        }
     }
 }
 
 @Composable
-private fun HurzySearchBar(query: String, onQueryChange: (String) -> Unit) {
+private fun HurzySearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onClear: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -219,7 +228,7 @@ private fun HurzySearchBar(query: String, onQueryChange: (String) -> Unit) {
             )
         }
         if (query.isNotEmpty()) {
-            IconButton(onClick = { onQueryChange("") }) {
+            IconButton(onClick = onClear) {
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = stringResource(R.string.hurzy_search_clear_cd),
@@ -232,26 +241,30 @@ private fun HurzySearchBar(query: String, onQueryChange: (String) -> Unit) {
 
 @Composable
 private fun HurzySectionHeader(title: String) {
-    Row(
+    Text(
+        text = title,
+        color = FuturaColors.TextPrimary,
+        style = MaterialTheme.typography.titleLarge,
+        fontWeight = FontWeight.Bold,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(top = 12.dp)
+    )
+}
+
+@Composable
+private fun HurzyLoading() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 24.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = title,
-            color = FuturaColors.TextPrimary,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.weight(1f)
+        CircularProgressIndicator(
+            color = FuturaColors.Emerald,
+            strokeWidth = 2.dp,
+            modifier = Modifier.size(28.dp)
         )
-        TextButton(onClick = { /* See-all seam */ }) {
-            Text(
-                text = stringResource(R.string.hurzy_see_all),
-                color = FuturaColors.TextTertiary,
-                style = MaterialTheme.typography.labelLarge
-            )
-        }
     }
 }
 
@@ -269,146 +282,70 @@ private fun HurzyEmptyState(text: String) {
 // Cards
 // ═════════════════════════════════════════════════════════════════════════
 
-/** Compact two-column tile used by "Recently played". */
 @Composable
-private fun HurzyRecentCard(item: HurzyItem, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(64.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(FuturaColors.SurfaceRaised)
-            .clickable(onClick = onClick),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        HurzyArtwork(item = item, size = 64.dp, corner = 8.dp)
-        Spacer(Modifier.width(12.dp))
-        Text(
-            text = item.title,
-            color = FuturaColors.TextPrimary,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(end = 8.dp)
-        )
-    }
-}
-
-/** Full-width horizontal carousel of larger artwork cards. */
-@Composable
-private fun HurzyCarousel(items: List<HurzyItem>, onItemClick: () -> Unit) {
-    LazyRow(
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        items(items, key = { it.title }) { item ->
-            HurzyFeatureCard(item = item, onClick = onItemClick)
-        }
-    }
-}
-
-@Composable
-private fun HurzyFeatureCard(item: HurzyItem, onClick: () -> Unit) {
+private fun HurzyTrackCard(item: SourceMediaItem, onClick: () -> Unit) {
     Column(
         modifier = Modifier
-            .width(160.dp)
+            .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
-            .padding(8.dp)
     ) {
-        HurzyArtwork(item = item, size = 144.dp, corner = 12.dp)
+        HurzyArtwork(item = item)
         Spacer(Modifier.height(8.dp))
         Text(
             text = item.title,
             color = FuturaColors.TextPrimary,
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
         Spacer(Modifier.height(2.dp))
         Text(
-            text = item.subtitle,
+            text = item.creator ?: item.sourceName,
             color = FuturaColors.TextTertiary,
             style = MaterialTheme.typography.bodySmall,
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
     }
 }
 
 /**
- * Artwork placeholder: a brand-tinted gradient with a music glyph. Swap for
- * a Coil `AsyncImage` once items carry real cover URLs.
+ * Real artwork when the source supplies it, otherwise a brand-tinted
+ * gradient with a music glyph, so a card never renders blank.
  */
 @Composable
-private fun HurzyArtwork(item: HurzyItem, size: Dp, corner: Dp) {
+private fun HurzyArtwork(item: SourceMediaItem) {
     Box(
         modifier = Modifier
-            .size(size)
-            .clip(RoundedCornerShape(corner))
+            .fillMaxWidth()
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(12.dp))
             .background(
-                Brush.linearGradient(listOf(item.tint, FuturaColors.SurfaceRecessed))
+                Brush.linearGradient(listOf(FuturaColors.SurfaceRaised, FuturaColors.SurfaceRecessed))
             ),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = Icons.Default.MusicNote,
             contentDescription = null,
-            tint = Color.White.copy(alpha = 0.85f),
-            modifier = Modifier.size(size * 0.35f)
+            tint = Color.White.copy(alpha = 0.35f),
+            modifier = Modifier.size(40.dp)
         )
+        if (!item.thumbnailUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = item.thumbnailUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
     }
 }
-
-// ═════════════════════════════════════════════════════════════════════════
-// Models & placeholder content
-// ═════════════════════════════════════════════════════════════════════════
-
-/** One card on the Hurzy feed. */
-data class HurzyItem(
-    val title: String,
-    val subtitle: String,
-    val tint: Color
-)
 
 private fun greetingForHour(hour: Int): Int = when (hour) {
     in 0..11 -> R.string.hurzy_greeting_morning
     in 12..16 -> R.string.hurzy_greeting_afternoon
     else -> R.string.hurzy_greeting_evening
-}
-
-/** Static feed content until the library and recommendation data are wired. */
-private object HurzySamples {
-
-    private val emeraldA = Color(0xFF004D26)
-    private val emeraldB = Color(0xFF006B34)
-    private val cyanA = Color(0xFF004A55)
-    private val amberA = Color(0xFF5C4000)
-
-    val recentlyPlayed = listOf(
-        HurzyItem("Night Drive", "Playlist", emeraldA),
-        HurzyItem("Focus Flow", "Playlist", cyanA),
-        HurzyItem("Deep Sleep", "Playlist", emeraldB),
-        HurzyItem("Morning Lift", "Playlist", amberA),
-        HurzyItem("Rain on Glass", "Ambient", emeraldA),
-        HurzyItem("Analog Dreams", "Album", cyanA)
-    )
-
-    val madeForYou = listOf(
-        HurzyItem("Your Daily Mix 1", "Futura, and more", emeraldB),
-        HurzyItem("Discover Weekly", "Fresh picks for you", cyanA),
-        HurzyItem("Deep Focus", "Instrumental, ambient", emeraldA),
-        HurzyItem("Late Night", "Chill, downtempo", amberA),
-        HurzyItem("Rewind", "Songs you loved", cyanA)
-    )
-
-    val mixes = listOf(
-        HurzyItem("Synthwave Mix", "Neon, retro, synth", emeraldB),
-        HurzyItem("Lo-Fi Mix", "Beats to relax to", cyanA),
-        HurzyItem("Ambient Mix", "Textures and drones", emeraldA),
-        HurzyItem("Jazz Mix", "Standards and more", amberA),
-        HurzyItem("Classical Mix", "Orchestral calm", emeraldB)
-    )
 }

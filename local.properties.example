@@ -34,7 +34,13 @@ THEAUDIODB_API_KEY=YOUR_KEY
 PODCASTINDEX_API_KEY=YOUR_KEY
 PODCASTINDEX_API_SECRET=YOUR_KEY
 
-# Genius — lyrics
+# ── Lyrics (no key needed) ──────────────────────────────────────────────
+# Lyrics come from LRCLIB (time-synced) with a Lyrics.ovh fallback, chained
+# in LyricsRepository. Both are keyless, so there is nothing to configure
+# here. Genius is listed below for metadata only: its API does not serve
+# lyrics, so an access token cannot be used for them.
+
+# Genius — annotations and metadata only, never lyrics
 GENIUS_ACCESS_TOKEN=YOUR_KEY
 
 # Flickr — Creative Commons photos/video

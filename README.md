@@ -268,6 +268,24 @@ The supplied tree describes Phases 1–3 as implemented and Phases 4–6 as scaf
 
 ---
 
+## Discovery feed (Hurzy)
+
+Hurzy is the discovery tab in the bottom navigation. It shows a Spotify-style
+home feed — a time-aware greeting, a debounced search field, and a two-column
+grid of artwork cards — backed by live results rather than placeholder data.
+
+- `HurzyViewModel` loads a default audio feed on open, so the tab is never
+  empty, and runs a 300 ms debounced search as you type.
+- Results come from every enabled source through `SearchRepository`. Each hit
+  is filtered to items that carry a direct stream URL and are not live radio.
+- Tapping a card queues the visible list through `ExoPlayerQueueManager` and
+  opens Now Playing — the same playback route the Media Hub uses.
+
+Artwork uses Coil when a source supplies a thumbnail, and falls back to a
+brand-tinted gradient so a card never renders blank.
+
+---
+
 ## Tech stack
 **Android**
 

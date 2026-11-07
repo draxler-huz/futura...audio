@@ -283,18 +283,18 @@ class SourceRegistry @Inject constructor() {
             tier2("bbcsfx", "BBC Sound Effects", SourceFileType.AUDIO, "RemArc license: personal/educational only.", commercial = false),
 
             // Audio — metadata only
-            meta("spotify_meta", "Spotify (metadata)", "Client-credentials OAuth. No audio playback."),
-            meta("deezer_meta", "Deezer (metadata)", "30s previews allowed; no download."),
+            meta("spotify_meta", "Spotify (metadata)", "Client-credentials OAuth. No audio playback.", keyName = "SPOTIFY_CLIENT_ID"),
+            meta("deezer_meta", "Deezer (metadata)", "30s previews allowed; no download.", keyName = "DEEZER_APP_ID"),
             meta("itunes_meta", "iTunes Search (metadata)", "Keyless. 30s previews; no download."),
-            meta("youtube_meta", "YouTube (metadata)", "Search metadata only; open in YouTube. Never download."),
-            meta("lastfm_meta", "Last.fm (metadata)", "Key required. Discovery only."),
-            meta("discogs_meta", "Discogs (metadata)", "Key required. Metadata only."),
+            meta("youtube_meta", "YouTube (metadata)", "Search metadata only; open in YouTube. Never download.", keyName = "YOUTUBE_API_KEY"),
+            meta("lastfm_meta", "Last.fm (metadata)", "Key required. Discovery only.", keyName = "LASTFM_API_KEY"),
+            meta("discogs_meta", "Discogs (metadata)", "Key required. Metadata only.", keyName = "DISCOGS_TOKEN"),
             meta("musicbrainz_meta", "MusicBrainz (metadata)", "Keyless. Enrichment; 1 req/sec with UA."),
-            meta("theaudiodb_meta", "TheAudioDB (metadata)", "Free-tier key. Artwork enrichment."),
+            meta("theaudiodb_meta", "TheAudioDB (metadata)", "Free-tier key. Artwork enrichment.", keyName = "THEAUDIODB_API_KEY"),
             meta("coverart_meta", "Cover Art Archive (metadata)", "Keyless. Artwork by MusicBrainz release id."),
-            meta("lrclib_meta", "LRCLIB (metadata)", "Keyless. Time-synced lyrics."),
+            meta("lrclib_meta", "LRCLIB (metadata)", "Keyless. Time-synced lyrics. Primary provider."),
             meta("lyricsovh_meta", "Lyrics.ovh (metadata)", "Keyless. Plain lyrics fallback."),
-            meta("genius_meta", "Genius (metadata)", "Key required. Lyrics and annotations."),
+            meta("genius_meta", "Genius (metadata)", "Key required. Metadata and annotations only; the API does not serve lyrics.", keyName = "GENIUS_ACCESS_TOKEN"),
 
             // Video — scraped
             video2("mixkit", "Mixkit", "Mixkit License (commercial allowed)."),
@@ -329,14 +329,19 @@ class SourceRegistry @Inject constructor() {
             linkOutOnly = linkOut
         )
 
-        private fun meta(id: String, name: String, notes: String) = SourceConfig(
+        private fun meta(
+            id: String,
+            name: String,
+            notes: String,
+            keyName: String? = null
+        ) = SourceConfig(
             id = id,
             displayName = name,
             fileType = null,
             tier = Tier.TIER_2,
             enabled = false,
-            requiresKey = id != "itunes_meta" && id != "musicbrainz_meta" &&
-                id != "coverart_meta" && id != "lrclib_meta" && id != "lyricsovh_meta",
+            requiresKey = keyName != null,
+            keyName = keyName,
             commercialUseAllowed = false,
             licenseName = "Metadata only",
             rateLimitPerMinute = 30,
