@@ -45,6 +45,7 @@ package com.futura.ui
 import android.content.Intent
 import android.os.Bundle
 import android.os.Build
+import android.view.WindowManager
 import android.provider.Settings
 import android.net.Uri
 import androidx.activity.ComponentActivity
@@ -298,6 +299,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        showOverKeyguard()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
@@ -353,8 +355,30 @@ class MainActivity : ComponentActivity() {
         // with what was most recently delivered — matching what the OS
         // would have done had the activity been created fresh.
         setIntent(intent)
+        showOverKeyguard()
         pendingRoute.value = MainRoute.fromIntent(intent)
         handleIncoming(intent)
+    }
+
+    /**
+     * Present the app over the lock screen.
+     *
+     * The app can be launched from a quick-settings tile right after a
+     * reboot, while the device is still locked. This lets the window show
+     * above the keyguard so the app is usable without entering the
+     * password first. Harmless when the device is already unlocked.
+     */
+    private fun showOverKeyguard() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
+        }
     }
 
     /** Plays audio shared or opened from another app, then shows Now Playing. */
