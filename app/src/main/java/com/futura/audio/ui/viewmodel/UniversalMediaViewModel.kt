@@ -107,9 +107,10 @@ class UniversalMediaViewModel @Inject constructor(
     }
 
     /**
-     * Category 2: publisher playlists (.m3u, .pls) and direct audio or video
-     * file links. Web pages are refused by [UrlExtractor], so nothing is
-     * pulled out of a page.
+     * Category 2: publisher playlists (.m3u, .pls), direct audio or video
+     * file links, and other web links. Direct files are downloaded for
+     * offline playback; anything else is resolved by [MusicSourceRepository]
+     * through the advanced (Category 2) extraction pipeline.
      */
     private suspend fun resolveAdvanced(url: String): List<MediaItem> {
         val path = url.substringBefore('?').lowercase()
@@ -117,26 +118,26 @@ class UniversalMediaViewModel @Inject constructor(
             return playlistResolver.resolvePlaylist(url)
         }
         val downloaded = urlExtractor.download(url)
-            ?: throw IllegalArgumentException(
-                "Could not get audio or video from that link. Use a direct file link, or a .m3u or .pls playlist."
+        if (downloaded != null) {
+            val fileUri = Uri.fromFile(downloaded.file).toString()
+            val title = url.substringBefore('?').substringAfterLast('/').substringBeforeLast('.')
+                .ifBlank { "Downloaded media" }
+            return listOf(
+                MediaItem(
+                    id = MediaId(fileUri),
+                    title = title,
+                    artist = null,
+                    streamUrl = fileUri,
+                    artworkUrl = null,
+                    sourceName = "Direct link",
+                    subcategory = Subcategory("extraction.direct"),
+                    route = PlaybackRoute.EXOPLAYER_DIRECT,
+                    category = PipelineCategory.ADVANCED_EXTRACTION,
+                    isVideo = downloaded.contentType.startsWith("video/")
+                )
             )
-        val fileUri = Uri.fromFile(downloaded.file).toString()
-        val title = url.substringBefore('?').substringAfterLast('/').substringBeforeLast('.')
-            .ifBlank { "Downloaded media" }
-        return listOf(
-            MediaItem(
-                id = MediaId(fileUri),
-                title = title,
-                artist = null,
-                streamUrl = fileUri,
-                artworkUrl = null,
-                sourceName = "Direct link",
-                subcategory = Subcategory("extraction.direct"),
-                route = PlaybackRoute.EXOPLAYER_DIRECT,
-                category = PipelineCategory.ADVANCED_EXTRACTION,
-                isVideo = downloaded.contentType.startsWith("video/")
-            )
-        )
+        }
+        return repository.resolveAdvanced(url)
     }
 
     fun onMediaItemClicked(item: MediaItem) {

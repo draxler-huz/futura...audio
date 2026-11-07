@@ -2,6 +2,7 @@ package com.futura.audio.pipeline.compliant
 
 import com.futura.audio.domain.MediaItem
 import com.futura.audio.domain.PlaybackRoute
+import com.futura.audio.pipeline.advanced.Category2Factory
 import com.futura.audio.playback.ExoPlayerQueueManager
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -13,16 +14,20 @@ import kotlinx.coroutines.withContext
  * touches factories, parsers, or ExoPlayer directly.
  *
  * - [resolve] returns every item for a URL, unchanged, including web embeds.
+ * - [resolveAdvanced] routes a link through the advanced (Category 2) pipeline.
  * - [playDirect] sends only EXOPLAYER_DIRECT items to ExoPlayer, on Main.
  *   Web embeds are filtered out and never reach ExoPlayer.
  */
 @Singleton
 class MusicSourceRepository @Inject constructor(
     private val factory: Category1Factory,
+    private val advancedFactory: Category2Factory,
     private val queue: ExoPlayerQueueManager
 ) {
 
     suspend fun resolve(url: String): List<MediaItem> = factory.resolve(url)
+
+    suspend fun resolveAdvanced(url: String): List<MediaItem> = advancedFactory.resolve(url)
 
     suspend fun playDirect(items: List<MediaItem>, startIndex: Int = 0) {
         val direct = items.filter { it.route == PlaybackRoute.EXOPLAYER_DIRECT }

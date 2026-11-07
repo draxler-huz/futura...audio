@@ -11,6 +11,7 @@ import io.ktor.server.engine.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import io.ktor.utils.io.*
 import java.net.URLDecoder
 import java.net.URLEncoder
 import javax.inject.Inject
@@ -39,7 +40,7 @@ class LocalhostProxyServer @Inject constructor(
                 get("/proxy") {
                     val targetUrlParam = call.request.queryParameters["url"]
                     if (targetUrlParam.isNullOrBlank()) {
-                        call.respond(HttpStatusCode.BadRequest, "Missing 'url' parameter")
+                        call.respondText("Missing 'url' parameter", status = HttpStatusCode.BadRequest)
                         return@get
                     }
                     val targetUrl = URLDecoder.decode(targetUrlParam, "UTF-8")
@@ -57,7 +58,10 @@ class LocalhostProxyServer @Inject constructor(
                             upstreamResponse.bodyAsChannel().copyTo(this)
                         }
                     } catch (e: Exception) {
-                        call.respond(HttpStatusCode.InternalServerError, "Proxy error: ${e.localizedMessage}")
+                        call.respondText(
+                            "Proxy error: ${e.localizedMessage}",
+                            status = HttpStatusCode.InternalServerError
+                        )
                     }
                 }
             }

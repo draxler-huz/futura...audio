@@ -219,3 +219,10 @@
 # shipped, so R8 would fail on them. Suppress the missing-class error for them.
 -dontwarn com.google.api.client.**
 -dontwarn com.google.crypto.tink.**
+
+# Ktor server (CIO) is used only for the on-device loopback proxy. It has
+# optional references to JVM/Netty/Java-EE types that never ship on Android.
+-dontwarn io.ktor.server.**
+-dontwarn org.slf4j.**
+-dontwarn org.eclipse.jetty.**
+-dontwarn java.lang.management.**

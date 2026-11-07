@@ -178,6 +178,8 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging.interceptor)
     implementation(libs.ktor.client.okhttp)
+    implementation(libs.ktor.server.core)
+    implementation(libs.ktor.server.cio)
     implementation(libs.moshi)
     implementation(libs.moshi.kotlin)
 

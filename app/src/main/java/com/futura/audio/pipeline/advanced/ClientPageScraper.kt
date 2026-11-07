@@ -47,9 +47,10 @@ class Category2Factory @Inject constructor(
     private val clientPageScraper: ClientPageScraper,
     private val proxyServer: LocalhostProxyServer
 ) {
-    suspend fun resolve(url: String): List<MediaItem> {
+    suspend fun resolve(url: String): List<MediaItem> = withContext(Dispatchers.IO) {
+        // Binds a socket; keep it off the main thread.
         proxyServer.start()
-        return if (url.contains("bandcamp") || url.contains("soundcloud") || url.contains("mixcloud")) {
+        if (url.contains("bandcamp") || url.contains("soundcloud") || url.contains("mixcloud")) {
             listOf(clientPageScraper.extractStream(url))
         } else {
             val proxied = proxyServer.getProxyUrl(url)
