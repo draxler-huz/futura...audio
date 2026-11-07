@@ -356,24 +356,18 @@
         </receiver>
 
         <!-- Headphone click parser (single/double/triple). -->
+        <!-- Not registered for MEDIA_BUTTON: Media3's session owns that action
+             and crashes when more than one receiver claims it. -->
         <receiver
             android:name=".system.HeadsetHookReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.MEDIA_BUTTON" />
-            </intent-filter>
-        </receiver>
+            android:exported="false" />
 
         <!-- Fallback media button receiver for BT headsets that do not
              honour MediaSession action routing. -->
         <receiver
             android:name=".system.MediaButtonReceiver"
             android:exported="true"
-            android:permission="android.permission.MEDIA_CONTENT_CONTROL">
-            <intent-filter>
-                <action android:name="android.intent.action.MEDIA_BUTTON" />
-            </intent-filter>
-        </receiver>
+            android:permission="android.permission.MEDIA_CONTENT_CONTROL" />
 
         <!-- Headphone unplug pause. -->
         <receiver
