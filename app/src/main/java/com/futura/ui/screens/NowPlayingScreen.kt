@@ -74,6 +74,7 @@
 package com.futura.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -253,8 +254,28 @@ fun NowPlayingScreen(
                             onSeekToLine = viewModel::onSeekToLine
                         )
                         LyricsState.Loading -> Text("Finding lyrics...", color = Color.Gray, fontSize = 13.sp)
-                        LyricsState.Empty -> Text("No lyrics found for this track.", color = Color.Gray, fontSize = 13.sp)
-                        is LyricsState.Error -> Text(state.message, color = Color(0xFFFF8A9B), fontSize = 13.sp)
+                        LyricsState.Empty -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("No lyrics found for this track.", color = Color.Gray, fontSize = 13.sp)
+                            Text(
+                                text = "Retry",
+                                color = Color(0xFF00E5FF),
+                                fontSize = 13.sp,
+                                modifier = Modifier
+                                    .padding(top = 6.dp)
+                                    .clickable { viewModel.retryLyrics() }
+                            )
+                        }
+                        is LyricsState.Error -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(state.message, color = Color(0xFFFF8A9B), fontSize = 13.sp)
+                            Text(
+                                text = "Retry",
+                                color = Color(0xFF00E5FF),
+                                fontSize = 13.sp,
+                                modifier = Modifier
+                                    .padding(top = 6.dp)
+                                    .clickable { viewModel.retryLyrics() }
+                            )
+                        }
                     }
                 },
                 relatedContent = {

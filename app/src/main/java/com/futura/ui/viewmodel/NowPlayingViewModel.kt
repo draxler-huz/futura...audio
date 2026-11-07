@@ -278,10 +278,23 @@ class NowPlayingViewModel @Inject constructor(
     private var lyricsJob: Job? = null
     private var lyricsSeq = 0
 
-    /** Looks up lyrics for the track now playing. Each successful answer is cached for the session. */
+    // The item the last lookup ran for, and whether it ran with a known
+    // duration. Used to retry once the duration becomes available.
+    private var lyricsItem: androidx.media3.common.MediaItem? = null
+    private var lyricsAttemptedWithDuration = false
+
+    /**
+     * Looks up lyrics for the track now playing.
+     *
+     * Only a successful answer is cached. A miss (Empty) or a failure (Error)
+     * is never cached, so a later attempt can succeed once the track's duration
+     * is known or the network is back.
+     */
     private fun loadLyrics(item: androidx.media3.common.MediaItem?) {
         lyricsJob?.cancel()
+        lyricsItem = item
         val duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L
+        lyricsAttemptedWithDuration = duration > 0L
         if (item == null) {
             publishLyrics(LyricsState.Empty, duration)
             return
@@ -299,11 +312,19 @@ class NowPlayingViewModel @Inject constructor(
         val artist = item.mediaMetadata.artist?.toString()
         publishLyrics(LyricsState.Loading, duration)
         lyricsJob = viewModelScope.launch {
-            val found = lrcLib.find(title, artist, duration)
-            // Errors are not cached, so revisiting the track retries.
-            if (found !is LyricsState.Error) lyricsCache[id] = found
+            // The media id is passed through so a web-embed URL is not sent as
+            // an exact-duration lookup key, which LRCLIB would reject.
+            val found = lrcLib.find(title, artist, duration, id)
+            // Only a hit is cached; a miss is retried when the duration arrives.
+            if (found is LyricsState.Success) lyricsCache[id] = found
             if (player.currentMediaItem?.mediaId == id) publishLyrics(found, duration)
         }
+    }
+
+    /** Re-runs the lyrics lookup for the current track. Bound to the panel's retry action. */
+    fun retryLyrics() {
+        lyricsCache.remove(player.currentMediaItem?.mediaId)
+        loadLyrics(player.currentMediaItem)
     }
 
     /** Parses off the main thread, then applies the result only if it is still the latest. */
@@ -326,6 +347,21 @@ class NowPlayingViewModel @Inject constructor(
         return OfflineLyricSynchronizer.synchronize(state.plainLyrics, durationMs) to false
     }
 
+    /**
+     * The first lookup can run before ExoPlayer knows the duration. When the
+     * duration then arrives, a miss is retried once with it. Guarded so it
+     * fires at most once per track and never while a lookup is in flight.
+     */
+    private fun retryLyricsIfDurationNowKnown() {
+        val current = player.currentMediaItem ?: return
+        if (lyricsAttemptedWithDuration) return
+        if (current.mediaId != lyricsItem?.mediaId) return
+        if (lyricsJob?.isActive == true) return
+        if (_lyricsState.value !is LyricsState.Empty) return
+        val duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: return
+        if (duration > 0L) loadLyrics(current)
+    }
+
     private val placeholderTitle = context.getString(R.string.widget_track_title_placeholder)
     private val placeholderArtist = context.getString(R.string.widget_track_artist_placeholder)
     private var positionTicker: Job? = null
@@ -333,6 +369,7 @@ class NowPlayingViewModel @Inject constructor(
     private val playerListener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
             syncFromPlayer()
+            retryLyricsIfDurationNowKnown()
         }
 
         override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {

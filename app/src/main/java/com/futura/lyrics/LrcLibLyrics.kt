@@ -28,10 +28,25 @@ class LrcLibLyrics @Inject constructor(
     private val okHttpClient: OkHttpClient
 ) {
 
-    suspend fun find(title: String, artist: String?, durationMs: Long): LyricsState =
+    /**
+     * @param mediaId the track's media id. A numeric id is a real millisecond
+     *        duration from the queue, so the exact-duration lookup is safe. A
+     *        non-numeric id (a file path, a URL, a hash) means the duration is
+     *        not trustworthy, so only the search endpoint is used.
+     */
+    suspend fun find(
+        title: String,
+        artist: String?,
+        durationMs: Long,
+        mediaId: String? = null
+    ): LyricsState =
         withContext(Dispatchers.IO) {
+            // Only trust the duration for a numeric media id (a real track);
+            // otherwise a URL/path would be sent as the duration and fail.
+            val duration = if (mediaId != null && mediaId.all { it.isDigit() }) durationMs else 0L
+            val cleanArtist = artist?.substringBefore(" - Topic")?.trim()?.takeIf { it.isNotBlank() }
             try {
-                val record = lookup(title, artist, durationMs) ?: return@withContext LyricsState.Empty
+                val record = lookup(title, cleanArtist, duration) ?: return@withContext LyricsState.Empty
                 val synced = record.textOrNull("syncedLyrics")
                 val plain = record.textOrNull("plainLyrics")
                 if (synced == null && plain == null) {
