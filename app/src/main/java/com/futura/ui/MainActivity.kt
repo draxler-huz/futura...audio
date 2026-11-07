@@ -85,6 +85,7 @@ import androidx.navigation.NavHostController
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
+import com.futura.ui.screens.BrowserScreen
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
@@ -142,6 +143,8 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 /** Editor route. `alarmId` is optional: absent means a new alarm. */
 private const val ALARM_EDITOR_ROUTE = "alarm_editor?alarmId={alarmId}"
+
+private const val BROWSER_ROUTE = "browser"
 
 private fun alarmEditorRoute(alarmId: String?): String =
     if (alarmId == null) "alarm_editor" else "alarm_editor?alarmId=$alarmId"
@@ -537,9 +540,13 @@ private fun MainNavHost(
             MusicGate(onCancel = { navController.popBackStack() }) {
                 LibraryScreen(
                     onOpenNowPlaying = { navController.navigateSingleTop(MainRoute.NowPlaying) },
-                    onOpenMediaHub = { navController.navigateSingleTop(MainRoute.MediaHub) }
+                    onOpenMediaHub = { navController.navigateSingleTop(MainRoute.MediaHub) },
+                    onOpenBrowser = { navController.navigate(BROWSER_ROUTE) { launchSingleTop = true } }
                 )
             }
+        }
+        composable(BROWSER_ROUTE) {
+            BrowserScreen(onBack = { navController.popBackStack() })
         }
         composable(MainRoute.MediaHub.route) {
             MusicGate(onCancel = { navController.popBackStack() }) {

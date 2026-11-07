@@ -48,6 +48,7 @@ import com.futura.audio.ui.viewmodel.LibraryViewModel
 fun LibraryScreen(
     onOpenNowPlaying: () -> Unit,
     onOpenMediaHub: () -> Unit,
+    onOpenBrowser: () -> Unit,
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val savedItems by viewModel.items.collectAsStateWithLifecycle()
@@ -94,6 +95,7 @@ fun LibraryScreen(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onOpenNowPlaying) { Text("Now Playing") }
             OutlinedButton(onClick = onOpenMediaHub) { Text("Media Hub") }
+            OutlinedButton(onClick = onOpenBrowser) { Text("Browser") }
         }
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
