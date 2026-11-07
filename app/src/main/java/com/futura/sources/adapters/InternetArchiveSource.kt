@@ -23,7 +23,7 @@ import org.json.JSONObject
 abstract class InternetArchiveSource(
     client: HttpClient,
     limiter: HostRateLimiter,
-    private val config: SourceConfig,
+    override val config: SourceConfig,
     private val mediaType: String,
     private val collections: String,
     private val audio: Boolean

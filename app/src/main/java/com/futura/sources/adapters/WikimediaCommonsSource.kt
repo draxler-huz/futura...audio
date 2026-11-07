@@ -21,7 +21,7 @@ import org.json.JSONObject
 abstract class WikimediaCommonsSource(
     client: HttpClient,
     limiter: HostRateLimiter,
-    private val config: SourceConfig,
+    override val config: SourceConfig,
     private val filePrefix: String
 ) : BaseSourceAdapter(client, limiter), MediaSource {
 

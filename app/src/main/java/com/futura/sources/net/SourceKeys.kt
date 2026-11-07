@@ -30,22 +30,25 @@ class SourceKeys @Inject constructor() {
     }
 
     /** The value for [name], or null when it is missing or still a placeholder. */
-    fun value(name: String): String? = when (name) {
-        "JAMENDO_CLIENT_ID" -> BuildConfig.JAMENDO_CLIENT_ID
-        "FREESOUND_TOKEN" -> BuildConfig.FREESOUND_TOKEN
-        "FMA_API_KEY" -> BuildConfig.FMA_API_KEY
-        "PEXELS_API_KEY" -> BuildConfig.PEXELS_API_KEY
-        "PIXABAY_API_KEY" -> BuildConfig.PIXABAY_API_KEY
-        "FLICKR_API_KEY" -> BuildConfig.FLICKR_API_KEY
-        "YOUTUBE_API_KEY" -> BuildConfig.YOUTUBE_API_KEY
-        "THEAUDIODB_API_KEY" -> BuildConfig.THEAUDIODB_API_KEY
-        "PODCASTINDEX_API_KEY" -> BuildConfig.PODCASTINDEX_API_KEY
-        "PODCASTINDEX_API_SECRET" -> BuildConfig.PODCASTINDEX_API_SECRET
-        "GENIUS_ACCESS_TOKEN" -> BuildConfig.GENIUS_ACCESS_TOKEN
-        "BANDSINTOWN_APP_ID" -> BuildConfig.BANDSINTOWN_APP_ID
-        "TICKETMASTER_API_KEY" -> BuildConfig.TICKETMASTER_API_KEY
-        else -> null
-    }.takeIf { it.isNotBlank() && it != PLACEHOLDER }
+    fun value(name: String): String? {
+        val raw = when (name) {
+            "JAMENDO_CLIENT_ID" -> BuildConfig.JAMENDO_CLIENT_ID
+            "FREESOUND_TOKEN" -> BuildConfig.FREESOUND_TOKEN
+            "FMA_API_KEY" -> BuildConfig.FMA_API_KEY
+            "PEXELS_API_KEY" -> BuildConfig.PEXELS_API_KEY
+            "PIXABAY_API_KEY" -> BuildConfig.PIXABAY_API_KEY
+            "FLICKR_API_KEY" -> BuildConfig.FLICKR_API_KEY
+            "YOUTUBE_API_KEY" -> BuildConfig.YOUTUBE_API_KEY
+            "THEAUDIODB_API_KEY" -> BuildConfig.THEAUDIODB_API_KEY
+            "PODCASTINDEX_API_KEY" -> BuildConfig.PODCASTINDEX_API_KEY
+            "PODCASTINDEX_API_SECRET" -> BuildConfig.PODCASTINDEX_API_SECRET
+            "GENIUS_ACCESS_TOKEN" -> BuildConfig.GENIUS_ACCESS_TOKEN
+            "BANDSINTOWN_APP_ID" -> BuildConfig.BANDSINTOWN_APP_ID
+            "TICKETMASTER_API_KEY" -> BuildConfig.TICKETMASTER_API_KEY
+            else -> null
+        }
+        return raw?.takeIf { it.isNotBlank() && it != PLACEHOLDER }
+    }
 
     private fun MutableSet<String>.addIfReal(name: String, value: String) {
         if (value.isNotBlank() && value != PLACEHOLDER) add(name)
