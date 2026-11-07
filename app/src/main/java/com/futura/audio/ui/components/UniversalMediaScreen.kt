@@ -15,6 +15,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -110,13 +112,43 @@ fun UniversalMediaHubScreen(viewModel: UniversalMediaViewModel) {
             Spacer(modifier = Modifier.height(16.dp))
             LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(activeItems, key = { it.id.value }) { item ->
-                    GlassmorphicCard(item) { viewModel.onMediaItemClicked(item) }
+                    GlassmorphicCard(
+                        item = item,
+                        downloading = uiState.downloadingId == item.id.value,
+                        onClick = { viewModel.onMediaItemClicked(item) },
+                        onDownload = { viewModel.download(item) }
+                    )
                 }
             }
         }
 
         if (uiState.isLoading) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color.Cyan)
+        }
+
+        val banner = uiState.downloadMessage ?: uiState.errorMessage
+        if (banner != null) {
+            Surface(
+                color = Color(0xFF141822),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = banner, color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                    IconButton(onClick = {
+                        viewModel.dismissDownloadMessage()
+                        viewModel.clearError()
+                    }) {
+                        Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = Color.Gray)
+                    }
+                }
+            }
         }
 
         uiState.activeWebViewUrl?.let { url ->
@@ -151,14 +183,30 @@ fun HubCoverFlow(items: List<com.futura.audio.domain.MediaItem>, onSelect: (com.
 }
 
 @Composable
-fun GlassmorphicCard(item: com.futura.audio.domain.MediaItem, onClick: () -> Unit) {
+fun GlassmorphicCard(
+    item: com.futura.audio.domain.MediaItem,
+    downloading: Boolean,
+    onClick: () -> Unit,
+    onDownload: () -> Unit
+) {
     Card(onClick = onClick, modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF131722))) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Cyan)
+            Icon(
+                imageVector = if (item.isVideo) Icons.Default.Movie else Icons.Default.PlayArrow,
+                contentDescription = null,
+                tint = Color.Cyan
+            )
             Spacer(modifier = Modifier.width(12.dp))
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(text = item.title, color = Color.White, fontSize = 14.sp, maxLines = 1)
                 Text(text = "${item.sourceName} • ${item.subcategory.value}", color = Color.Gray, fontSize = 11.sp)
+            }
+            if (downloading) {
+                CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.Cyan, strokeWidth = 2.dp)
+            } else {
+                IconButton(onClick = onDownload) {
+                    Icon(Icons.Default.Download, contentDescription = "Download", tint = Color.Cyan)
+                }
             }
         }
     }

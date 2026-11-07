@@ -12,7 +12,7 @@ import com.futura.audio.domain.Subcategory
 import com.futura.audio.pipeline.advanced.PlaylistResolver
 import com.futura.data.extraction.UrlExtractor
 import com.futura.audio.pipeline.compliant.MusicSourceRepository
-import com.futura.audio.playback.ExoPlayerQueueManager
+import com.futura.audio.playback.PlaybackVideoState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,7 +28,7 @@ class UniversalMediaViewModel @Inject constructor(
     private val store: SavedSourcesStore,
     private val playlistResolver: PlaylistResolver,
     private val urlExtractor: UrlExtractor,
-    private val queueManager: ExoPlayerQueueManager
+    private val videoState: PlaybackVideoState
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MediaHubUiState())
@@ -81,9 +81,12 @@ class UniversalMediaViewModel @Inject constructor(
                 // Persist everything the hub holds, so the Library sees it.
                 store.save(_uiState.value.allItems.distinctBy { it.id })
 
-                // Auto-play direct items via ExoPlayer queue manager
-                if (resolvedItems.isNotEmpty() && resolvedItems.first().route == PlaybackRoute.EXOPLAYER_DIRECT) {
-                    queueManager.loadAndPlayQueue(resolvedItems)
+                // Auto-play direct items through the repository, which also makes
+                // sure the loopback proxy is up before a proxied stream is queued.
+                val first = resolvedItems.firstOrNull()
+                if (first != null && first.route == PlaybackRoute.EXOPLAYER_DIRECT) {
+                    repository.playDirect(resolvedItems)
+                    if (first.isVideo) videoState.show()
                 }
 
             } catch (e: CancellationException) {
@@ -142,9 +145,13 @@ class UniversalMediaViewModel @Inject constructor(
 
     fun onMediaItemClicked(item: MediaItem) {
         when (item.route) {
-            PlaybackRoute.EXOPLAYER_DIRECT -> {
+            PlaybackRoute.EXOPLAYER_DIRECT -> viewModelScope.launch {
                 try {
-                    queueManager.loadAndPlayQueue(listOf(item))
+                    repository.playDirect(listOf(item))
+                    if (item.isVideo) videoState.show()
+                    _uiState.update { it.copy(errorMessage = null) }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     _uiState.update { it.copy(errorMessage = e.localizedMessage ?: "Playback failed") }
                 }
@@ -153,6 +160,34 @@ class UniversalMediaViewModel @Inject constructor(
                 _uiState.update { it.copy(activeWebViewUrl = item.streamUrl) }
             }
         }
+    }
+
+    /** Saves [item] to the device Downloads collection and reports the outcome in the UI. */
+    fun download(item: MediaItem) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(downloadingId = item.id.value, downloadMessage = null, errorMessage = null) }
+            val saved = try {
+                repository.download(item)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            _uiState.update {
+                it.copy(
+                    downloadingId = null,
+                    downloadMessage = if (saved != null) {
+                        "Saved \"${item.title}\" to Downloads"
+                    } else {
+                        "Could not download \"${item.title}\""
+                    }
+                )
+            }
+        }
+    }
+
+    fun dismissDownloadMessage() {
+        _uiState.update { it.copy(downloadMessage = null) }
     }
 
     fun dismissWebView() {
