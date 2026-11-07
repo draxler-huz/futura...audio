@@ -78,6 +78,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import com.futura.alarm.AlarmStore
 import com.futura.alarm.DndBypassResolver
 import com.futura.alarm.PermissionGuard
+import androidx.hilt.work.HiltWorkerFactory
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -86,6 +87,9 @@ import kotlinx.coroutines.launch
 
 @HiltAndroidApp
 class FuturaApp : Application(), Configuration.Provider {
+
+    // Injects @HiltWorker classes such as AuroraDownloadWorker.
+    @Inject lateinit var workerFactory: HiltWorkerFactory
 
     @Inject
     lateinit var alarmStore: AlarmStore
@@ -215,6 +219,7 @@ class FuturaApp : Application(), Configuration.Provider {
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
             .setMinimumLoggingLevel(if (BuildConfig.DEBUG) Log.DEBUG else Log.INFO)
+            .setWorkerFactory(workerFactory)
             .build()
 
     // ── Uncaught exception capture ───────────────────────────────────────

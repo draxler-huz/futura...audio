@@ -33,6 +33,24 @@ class InternetArchiveSource @Inject constructor(
         return (0 until docs.length()).mapNotNull { parse(docs.getJSONObject(it), kind) }
     }
 
+    /** Picks the first audio or video file in an Archive item. Returns null if none fits. */
+    suspend fun resolveDownloadUrl(item: AuroraMediaItem): String? {
+        val identifier = encodePathSegment(item.id.removePrefix("archive:"))
+        limiter.await(HOST)
+        val files = JSONObject(client.get("https://archive.org/metadata/$identifier").bodyAsText())
+            .optJSONArray("files") ?: return null
+        val extensions = if (item.kind == AuroraKind.AUDIO) AUDIO_EXT else VIDEO_EXT
+        for (i in 0 until files.length()) {
+            val name = files.getJSONObject(i).optString("name")
+            if (name.isNotEmpty() && !name.contains('/') &&
+                extensions.any { name.endsWith(".$it", ignoreCase = true) }
+            ) {
+                return "https://archive.org/download/$identifier/${encodePathSegment(name)}"
+            }
+        }
+        return null
+    }
+
     private fun parse(doc: JSONObject, kind: AuroraKind): AuroraMediaItem? {
         val identifier = doc.optString("identifier").takeIf { it.isNotBlank() } ?: return null
         val license = AuroraLicense.fromCreativeCommonsUrl(doc.optString("licenseurl")) ?: return null
@@ -53,5 +71,7 @@ class InternetArchiveSource @Inject constructor(
 
     private companion object {
         const val HOST = "archive.org"
+        val AUDIO_EXT = listOf("mp3", "ogg", "flac", "wav")
+        val VIDEO_EXT = listOf("mp4", "ogv", "webm")
     }
 }

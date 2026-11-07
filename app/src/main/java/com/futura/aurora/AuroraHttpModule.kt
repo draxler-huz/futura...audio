@@ -23,7 +23,10 @@ object AuroraHttpModule {
     @Singleton
     fun provideAuroraHttpClient(): HttpClient = HttpClient(OkHttp) {
         install(HttpTimeout) {
-            requestTimeoutMillis = 20_000
+            // Null means no overall limit, so large downloads can finish.
+            // Stalled connections still fail on the socket timeout.
+            requestTimeoutMillis = null
+            socketTimeoutMillis = 30_000
             connectTimeoutMillis = 10_000
         }
         defaultRequest {
