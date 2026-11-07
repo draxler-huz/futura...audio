@@ -214,6 +214,20 @@
             </intent-filter>
         </activity>
 
+        <!-- Web-embed picture-in-picture host. Keeps an embed playing while
+             the app is in the background: the WebView pauses when its window
+             is not visible, so this activity shrinks into PiP instead. -->
+        <activity
+            android:name=".audio.ui.EmbedPlaybackActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density|smallestScreenSize"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:supportsPictureInPicture="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Futura"
+            android:windowSoftInputMode="adjustResize" />
+
         <!-- Launcher alias: primary "Futura" branding. Enabled by default. -->
         <activity-alias
             android:name=".ui.MainActivityFutura"
@@ -445,6 +459,15 @@
         <!-- ═══════════════════════════════════════════════════════════════
              WorkManager / DataStore
              ═══════════════════════════════════════════════════════════════ -->
+
+        <!-- WorkManager runs AuroraDownloadWorker as a data-sync foreground
+             service. Without this declaration the merged manifest leaves
+             foregroundServiceType empty and startForeground throws
+             "foregroundServiceType 0x1 is not a subset of ... 0x0". -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
 
         <provider
             android:name="androidx.startup.InitializationProvider"

@@ -32,9 +32,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.futura.audio.domain.PipelineCategory
+import com.futura.audio.playback.EmbedPlaybackEntryPoint
+import dagger.hilt.android.EntryPointAccessors
 import com.futura.audio.ui.viewmodel.UniversalMediaViewModel
 import kotlin.math.absoluteValue
 
@@ -215,6 +218,18 @@ fun GlassmorphicCard(
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun HubWebViewDialog(url: String, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val session = remember(context) {
+        EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            EmbedPlaybackEntryPoint::class.java
+        ).embedPlaybackSession()
+    }
+    DisposableEffect(url) {
+        session.beginPlayback(url)
+        onDispose { session.endPlayback() }
+    }
+
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(modifier = Modifier.fillMaxWidth(0.9f).fillMaxHeight(0.7f), color = Color(0xFF0F1115)) {
             Column {
@@ -222,10 +237,13 @@ fun HubWebViewDialog(url: String, onDismiss: () -> Unit) {
                     Text("Web Embed", color = Color.White)
                     IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, contentDescription = null, tint = Color.White) }
                 }
-                AndroidView(modifier = Modifier.fillMaxSize(), factory = { context ->
-                    WebView(context).apply {
+                AndroidView(modifier = Modifier.fillMaxSize(), factory = { ctx ->
+                    WebView(ctx).apply {
                         settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.mediaPlaybackRequiresUserGesture = false
                         webViewClient = WebViewClient()
+                        webChromeClient = android.webkit.WebChromeClient()
                         loadUrl(url)
                     }
                 })

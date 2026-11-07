@@ -103,6 +103,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import android.util.Log
 import androidx.lifecycle.lifecycleScope
 import com.futura.audio.playback.IncomingMediaHandler
+import com.futura.audio.playback.EmbedPlaybackSession
 import com.futura.audio.playback.PlaybackVideoState
 import com.futura.audio.ui.components.VideoPlayerDialog
 import javax.inject.Inject
@@ -286,6 +287,9 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var videoState: PlaybackVideoState
 
+    @Inject
+    lateinit var embedSession: EmbedPlaybackSession
+
     /** Android 13+ hides notifications until the user allows them. Playback works without it. */
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -322,6 +326,23 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    /**
+     * Called while the app is still visible, right before the user leaves it
+     * (Home, recents, another app). This is the reliable moment to move a web
+     * embed into the picture-in-picture host: a background activity start is
+     * not allowed, but this one is.
+     */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        embedSession.activeUrl.value?.let { embedSession.startPip(it) }
+    }
+
+    /** Returning to the app closes the PiP host and lets the dialog play again. */
+    override fun onResume() {
+        super.onResume()
+        embedSession.stopPip()
     }
 
     override fun onNewIntent(intent: Intent) {

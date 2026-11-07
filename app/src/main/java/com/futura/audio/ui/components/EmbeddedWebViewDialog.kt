@@ -23,8 +23,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.runtime.DisposableEffect
+import com.futura.audio.playback.EmbedPlaybackEntryPoint
+import dagger.hilt.android.EntryPointAccessors
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -35,6 +39,20 @@ fun EmbeddedWebViewDialog(
     // Held so back navigation and release can reach the live WebView.
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var loadError by remember { mutableStateOf<String?>(null) }
+
+    // Registers this embed with the session so it can be handed to the
+    // picture-in-picture host when the app is backgrounded.
+    val context = LocalContext.current
+    val session = remember(context) {
+        EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            EmbedPlaybackEntryPoint::class.java
+        ).embedPlaybackSession()
+    }
+    DisposableEffect(url) {
+        session.beginPlayback(url)
+        onDispose { session.endPlayback() }
+    }
 
     // Back goes to the previous embed page first, then closes the dialog.
     BackHandler {
