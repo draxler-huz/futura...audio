@@ -1,8 +1,11 @@
 package com.futura.ui.screens
 
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Build
 import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
@@ -11,12 +14,15 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -24,15 +30,19 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -47,6 +57,21 @@ import androidx.compose.ui.viewinterop.AndroidView
 import java.net.URLEncoder
 
 private const val HOME = "https://duckduckgo.com/"
+private const val BRAVE_PACKAGE = "com.brave.browser"
+
+/** A page the user has visited in this browser session. Nothing is saved to disk. */
+private data class HistoryEntry(val url: String, val title: String)
+
+/** Opens [url] in Brave when it is installed, otherwise lets the user pick a browser. */
+private fun openInBrave(context: Context, url: String?) {
+    if (url.isNullOrBlank()) return
+    val view = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+    try {
+        context.startActivity(Intent(view).setPackage(BRAVE_PACKAGE))
+    } catch (e: ActivityNotFoundException) {
+        context.startActivity(Intent.createChooser(view, "Open in"))
+    }
+}
 
 /**
  * A simple web browser: address bar, back, forward, reload, and close.
@@ -61,6 +86,8 @@ fun BrowserScreen(onBack: () -> Unit) {
     var loading by remember { mutableStateOf(false) }
     var canBack by remember { mutableStateOf(false) }
     var canForward by remember { mutableStateOf(false) }
+    val history = remember { mutableStateListOf<HistoryEntry>() }
+    var showHistory by remember { mutableStateOf(false) }
 
     val webView = remember {
         newSecureWebView(context) { view, url, isLoading ->
@@ -68,6 +95,9 @@ fun BrowserScreen(onBack: () -> Unit) {
             loading = isLoading
             canBack = view.canGoBack()
             canForward = view.canGoForward()
+            if (!isLoading && url != null && history.lastOrNull()?.url != url) {
+                history.add(HistoryEntry(url, view.title.orEmpty()))
+            }
         }
     }
 
@@ -119,12 +149,46 @@ fun BrowserScreen(onBack: () -> Unit) {
                 keyboardActions = KeyboardActions(onGo = { go() })
             )
         }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(onClick = { openInBrave(context, webView.url) }) { Text("Open in Brave") }
+            OutlinedButton(onClick = { showHistory = true }) { Text("History (${history.size})") }
+        }
         if (loading) {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         }
         AndroidView(
             modifier = Modifier.fillMaxWidth().weight(1f),
             factory = { webView }
+        )
+    }
+
+    if (showHistory) {
+        AlertDialog(
+            onDismissRequest = { showHistory = false },
+            title = { Text("History (this session)") },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    if (history.isEmpty()) Text("Nothing visited yet.")
+                    history.asReversed().forEach { entry ->
+                        TextButton(onClick = {
+                            webView.loadUrl(entry.url)
+                            showHistory = false
+                        }) {
+                            Text(entry.title.ifBlank { entry.url }, maxLines = 1)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    history.clear()
+                    showHistory = false
+                }) { Text("Clear") }
+            },
+            dismissButton = { TextButton(onClick = { showHistory = false }) { Text("Close") } }
         )
     }
 }
